@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "marketpulse"
+version = "0.1.0"
+description = "Plataforma de datos de mercados en AWS con agente text-to-SQL"
+readme = "README.md"
+# Misma versión que usaremos en el runtime de AWS Lambda
+requires-python = ">=3.13,<3.14"
+authors = [{ name = "Alberto Debén Fernández" }]
+dependencies = []
+
+[project.optional-dependencies]
+# Herramientas solo para desarrollo: no viajan a Lambda
+dev = [
+    "ruff>=0.14",
+    "pytest>=8.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E/W: estilo PEP 8 · F: errores (variables sin usar...) · I: orden de imports
+# B: bugs habituales · UP: sintaxis moderna de Python
+select = ["E", "W", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

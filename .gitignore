@@ -1,0 +1,46 @@
+# --- Secretos (NUNCA a Git) ---
+.env
+.env.*
+!.env.example
+
+# --- Documentos privados (especificación original del proyecto) ---
+INFORME_PROYECTO.pdf
+
+# --- Terraform ---
+# El state guarda la "memoria" de la infraestructura y puede contener datos sensibles
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+crash.*.log
+# Las variables pueden llevar valores privados; se sube solo la plantilla
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+# OJO: .terraform.lock.hcl SÍ se sube (fija las versiones de los proveedores)
+
+# --- Datos descargados (se regeneran con la ingesta) ---
+data/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# --- Herramientas de calidad ---
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- Sistema operativo y editores ---
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
