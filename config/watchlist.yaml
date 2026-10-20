@@ -1,0 +1,25 @@
+# Lista de activos que sigue MarketPulse.
+# Para añadir o quitar un activo se edita SOLO este fichero: el código no cambia.
+
+# Divisas (Frankfurter, tipos de referencia del BCE).
+# Un tipo EUR/USD = 1,08 significa que 1 euro vale 1,08 dólares.
+fx:
+  base: EUR
+  quotes: [USD, GBP]
+
+# Criptomonedas (CoinGecko). CoinGecko identifica cada moneda por un "id" propio
+# (bitcoin), no por su símbolo (BTC), porque hay símbolos repetidos entre monedas.
+crypto:
+  vs_currency: usd        # moneda en la que pedimos el precio
+  assets:
+    - { symbol: BTC, coingecko_id: bitcoin }
+    - { symbol: ETH, coingecko_id: ethereum }
+    - { symbol: SOL, coingecko_id: solana }
+
+# Acciones y ETF (Alpha Vantage). Plan gratuito: unas 25 peticiones al día,
+# y hacemos 1 petición por símbolo, así que conviene no pasar de 5.
+stocks:
+  assets:
+    - { symbol: SPY, name: "SPDR S&P 500 ETF" }            # S&P 500 (EE. UU.)
+    - { symbol: VT, name: "Vanguard Total World Stock ETF" }  # renta variable global
+    - { symbol: QQQ, name: "Invesco QQQ Trust" }            # Nasdaq-100 (tecnología)

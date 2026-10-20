@@ -102,3 +102,101 @@ Fuente: [Managed policies for your organization](https://docs.aws.amazon.com/acc
 **Decisión:** añadirlo a `.gitignore`. El resumen de las reglas vive en `CLAUDE.md`.
 
 **Motivo:** un fichero que entra en el historial de Git es muy difícil de eliminar después. Es más fácil no subirlo nunca.
+
+---
+
+## D-008 · Dependencias de la ingesta: `requests`, `PyYAML` y `python-dotenv`
+**Fecha:** 2026-10-20 · **Fase:** 1
+
+**Contexto:** la Fase 1 necesita hacer llamadas HTTP, leer un fichero YAML y cargar claves de API desde `.env`.
+
+**Opciones:**
+- HTTP: `urllib` (librería estándar, sin dependencias, pero incómoda), `httpx` (moderna, con modo asíncrono que no necesitamos) o `requests` (la más usada y la más fácil de leer).
+- YAML: Python no trae lector de YAML; `PyYAML` es el estándar de facto.
+- `.env`: leer el fichero a mano o usar `python-dotenv`.
+- Mocks en los tests: `unittest.mock` (incluido en Python) frente a librerías como `responses`.
+
+**Decisión:** `requests`, `PyYAML` y `python-dotenv`, aprobadas por Alberto. Los mocks se hacen con `unittest.mock`, sin dependencia extra.
+
+**Motivo:** son librerías maduras y muy conocidas, y el código queda sencillo de leer. En Lambda (Fase 3) habrá que empaquetarlas; `python-dotenv` solo se usa en local, porque en AWS las claves vendrán de SSM Parameter Store.
+
+---
+
+## D-009 · Bronze: respuesta original, un fichero por fuente/día/nombre, sobrescritura atómica y fecha UTC
+**Fecha:** 2026-10-20 · **Fase:** 1
+
+**Contexto:** la ingesta debe guardar la respuesta original de cada API y, si se ejecuta dos veces el mismo día, no duplicar datos.
+
+**Opciones:**
+- Nombre del fichero con la hora de ejecución (`frankfurter_0612.json`): nunca se pierde nada, pero se duplican datos y la limpieza pasa a silver.
+- Nombre determinista (`source=.../dt=.../<nombre>.json`) y sobrescribir: idempotente por construcción.
+- Envolver la respuesta con metadatos (`{"ingested_at": ..., "payload": ...}`) frente a guardarla tal cual.
+
+**Decisión:** nombre determinista con sobrescritura **atómica** (temporal y después `os.replace`); la respuesta se guarda **tal cual**, sin envoltorio; la fecha de partición `dt` es la fecha de ejecución en **UTC**. Los nombres se validan con `[A-Za-z0-9_-]` para evitar *path traversal*.
+
+**Motivo:** cumple el criterio de aceptación sin lógica de deduplicación; bronze es la copia fiel de la fuente (si silver tiene un error, se puede rehacer desde aquí); UTC hace que el portátil y Lambda generen la misma partición. Contrapartida aceptada: una segunda ejecución del mismo día sustituye a la primera (se queda el dato más reciente).
+
+---
+
+## D-010 · Frankfurter: API v2 y solo el proveedor BCE
+**Fecha:** 2026-10-20 · **Fase:** 1
+
+**Contexto:** al consultar la documentación oficial (frankfurter.dev, 2026-10-20) se ve que la API v1 está **obsoleta** (sigue disponible) y que la v2 combina por defecto los datos de unos 100 bancos centrales. El informe pide los tipos de referencia del BCE.
+
+**Opciones:** v1 (`/v1/latest`, la que aparece en muchos tutoriales) · v2 sin filtro (media de varios bancos) · v2 con `providers=ECB`.
+
+**Comprobación real:** `GET /v2/rates?base=EUR&quotes=USD,GBP` → USD 1,1226 (media) frente a `...&providers=ECB` → USD 1,1215 (BCE). No son el mismo dato.
+
+**Decisión:** v2 con `providers=ECB`. La respuesta es una lista de filas `{date, base, quote, rate}`.
+
+**Motivo:** la v2 es la versión mantenida; el BCE es la fuente oficial que pide el informe y su origen es trazable. Condiciones del BCE: uso libre, citando al BCE como fuente e indicando cualquier transformación de los datos (se citará en el README). Sin clave de API; la documentación habla de "sin cuotas", con un límite de peticiones contra el abuso (hacemos 1 al día).
+
+---
+
+## D-011 · CoinGecko: `/simple/price` con clave Demo opcional en cabecera
+**Fecha:** 2026-10-20 · **Fase:** 1
+
+**Contexto:** documentación oficial (docs.coingecko.com y la página de precios, 2026-10-20): existe un acceso **sin clave** con un límite por IP compartido entre todos los usuarios de esa IP, y un plan **Demo** gratuito (sin tarjeta) con 100 llamadas/min y 10.000/mes. La clave Demo va en la cabecera `x-cg-demo-api-key` o en el parámetro `x_cg_demo_api_key`. El plan gratuito exige **atribución** a CoinGecko.
+
+**Opciones:** solo sin clave · exigir siempre la clave · clave **opcional** · clave en la URL o en una cabecera.
+
+**Decisión:** endpoint `/simple/price` (una llamada para todas las monedas, con capitalización, volumen, variación 24 h y `last_updated_at`); clave **opcional** leída de `COINGECKO_API_KEY`, y siempre en **cabecera**.
+
+**Motivo:** en local funciona sin registrarse (comprobado: 200 sin clave). En Lambda las IP de AWS se comparten, así que antes de la Fase 3 Alberto creará la clave Demo y se guardará en SSM Parameter Store. La cabecera evita que la clave aparezca en URLs y logs, como recomienda la propia documentación. Uso: 1 llamada/día ≈ 30/mes, muy por debajo del límite. **Pendiente:** fijar el texto exacto de la atribución antes de mostrar datos (Fase 8, dashboard y README).
+
+---
+
+## D-012 · Alpha Vantage: `TIME_SERIES_DAILY` compacta, un fichero por símbolo y fallo parcial
+**Fecha:** 2026-10-20 · **Fase:** 1
+
+**Contexto:** documentación oficial (2026-10-20): clave gratuita obligatoria, 25 peticiones/día; `TIME_SERIES_DAILY_ADJUSTED` es *premium*; con `TIME_SERIES_DAILY`, `outputsize=full` también es *premium* y `compact` devuelve los últimos 100 días. La clave se pasa en la URL (`apikey`). Los errores llegan como **200** con un campo `Information`, `Note` o `Error Message` (comprobado con la clave `demo`). Términos de uso: uso personal y no comercial.
+
+**Opciones:** `GLOBAL_QUOTE` (solo el último día) · `TIME_SERIES_DAILY` compacta · la serie ajustada (de pago). Si falla un símbolo: parar todo · ignorarlo en silencio · seguir y avisar al final.
+
+**Decisión:** `TIME_SERIES_DAILY` con `compact` (1 petición por símbolo: 3/día de 25), un fichero por símbolo (`source=alphavantage/dt=.../SPY.json`), los 200 con aviso se tratan como error y, si falla un símbolo, se guardan los demás y se lanza `PartialIngestError`. Sin clave no se hace ninguna llamada (`MissingApiKeyError`).
+
+**Motivo:** la serie diaria trae OHLCV, y los 100 días rellenan huecos sin coste extra. Contrapartida: los precios **no están ajustados** por dividendos ni *splits* (en ETF el efecto es pequeño, pero queda anotado como limitación para la Fase 4). La clave en la URL la impone la API: `HttpClient` la oculta en los logs y el texto de los avisos se limpia de la clave.
+
+**Actualización (2026-10-20, primera ejecución real):** SPY se guardó, pero VT y QQQ, pedidos 133 ms después, recibieron un 200 con `Information: ... spreading out your free API requests more sparingly (1 request per second)`. Hay un **límite de ráfaga** de 1 petición por segundo que la página de soporte no menciona. Solución: pausa de `REQUEST_INTERVAL = 1,5 s` entre símbolos (*throttling*), con `sleep` inyectado para que los tests no esperen. El fallo parcial funcionó como se diseñó: se guardó SPY, sin basura para VT ni QQQ, y se lanzó `PartialIngestError` con el motivo.
+
+---
+
+## D-013 · Orquestador: todas las fuentes se ejecutan siempre y el código de salida resume el resultado
+**Fecha:** 2026-10-20 · **Fase:** 1
+
+**Contexto:** `python -m marketpulse.ingest` tiene que lanzar las tres fuentes. Hay que decidir qué pasa si una falla y cómo se entera quien lo ejecuta (Alberto, Lambda o GitHub Actions).
+
+**Opciones:** parar en el primer fallo · seguir y devolver siempre 0 · seguir y devolver 1 si algo falló.
+
+**Decisión:**
+- Lógica en `ingest/run.py` (`run_all()` y `main()`); `__main__.py` solo llama a `main()`.
+- Se ejecutan **todas** las fuentes y se atrapa cualquier excepción por fuente (`logger.exception`, con la traza).
+- Al final, un resumen y **código de salida 1** si alguna fuente falló (0 si todas fueron bien).
+- `.env` y el logging se configuran solo en `main()`. Las claves se leen de las variables de entorno y se pasan a cada cliente como parámetro.
+- Una sola fecha `dt` para todas las fuentes.
+
+**Motivo:** un fallo en una fuente no debe costar los datos de las otras. El código distinto de 0 hace que el fallo sea visible: en la Fase 3 activará la alarma y en la Fase 6 pondrá el *job* en rojo. `run_all()` sin efectos globales la podrá llamar el *handler* de Lambda directamente.
+
+**Mejora de seguridad asociada:** `HttpClient` convierte cualquier otro `requests.RequestException` en `HttpError` sin el mensaje original, que puede contener la URL con la clave, y sin encadenarlo. Así la traza de `logger.exception` no puede filtrar claves.
+
+**Robustez de las claves:** `get_secret()` trata una clave vacía o hecha solo de espacios como inexistente (`None`). Se detectó al probar el código de salida: en PowerShell, `$env:X = ""` borra la variable, y la prueba con `" "` habría llamado a Alpha Vantage con una clave basura, gastando cupo.

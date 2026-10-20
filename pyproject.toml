@@ -10,7 +10,11 @@ readme = "README.md"
 # Misma versión que usaremos en el runtime de AWS Lambda
 requires-python = ">=3.13,<3.14"
 authors = [{ name = "Alberto Debén Fernández" }]
-dependencies = []
+dependencies = [
+    "requests>=2.32",       # llamadas HTTP a las APIs (D-008)
+    "PyYAML>=6.0",          # leer config/watchlist.yaml
+    "python-dotenv>=1.0",   # cargar claves de API desde .env en local
+]
 
 [project.optional-dependencies]
 # Herramientas solo para desarrollo: no viajan a Lambda

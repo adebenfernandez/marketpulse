@@ -1,14 +1,14 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 0 terminada (2026-10-20)
-**Siguiente paso:** Fase 1 · Ingesta en local (nueva sesión)
+**Fase actual:** Fase 1 terminada (2026-10-20)
+**Siguiente paso:** Fase 2 · Transformación y data lake en S3 (nueva sesión)
 
 Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 
 | Fase | Nombre | Estado |
 |------|--------|--------|
 | 0 | Preparación y seguridad | ✅ |
-| 1 | Ingesta en local | ⬜ |
+| 1 | Ingesta en local | ✅ |
 | 2 | Transformación y data lake en S3 | ⬜ |
 | 3 | Automatización con Lambda y EventBridge | ⬜ |
 | 4 | SQL y modelo analítico en Athena | ⬜ |
@@ -83,16 +83,45 @@ Plantilla para cada fase (se rellena al trabajarla):
 
 ## Fase 1 · Ingesta en local
 **Criterios de aceptación:**
-- [ ] `python -m marketpulse.ingest` genera ficheros para todas las fuentes
-- [ ] Ejecutarlo dos veces el mismo día no duplica datos
-- [ ] `pytest` pasa
-- [ ] `ruff check` sin errores
+- [x] `python -m marketpulse.ingest` genera ficheros para todas las fuentes — `Resumen: 3/3`, 5 ficheros en `data/bronze/`
+- [x] Ejecutarlo dos veces el mismo día no duplica datos — siguen siendo 5 ficheros tras varias ejecuciones
+- [x] `pytest` pasa — `64 passed`
+- [x] `ruff check` sin errores — `All checks passed!`
 
 ### Pasos completados
+- Paso 1.1 — `config/watchlist.yaml` (EUR→USD/GBP · BTC, ETH, SOL con `coingecko_id` · SPY, VT, QQQ) y `src/marketpulse/common/config.py` (lectura con `yaml.safe_load`, validación con `ConfigError`, dataclasses inmutables, normalización de mayúsculas/minúsculas). Dependencias `requests`, `PyYAML` y `python-dotenv` añadidas (D-008). Evidencia: `pytest -q` → `4 passed` · `ruff check .` → `All checks passed!` (ejecutado también por Alberto).
+- Paso 1.2 — `src/marketpulse/common/http.py`: `HttpClient.get_json()` con timeout (10 s), reintentos con espera exponencial (1/2/4 s, tope 30 s, respeta `Retry-After`) solo para errores pasajeros (429, 5xx, red), sin reintento para 4xx ni para cuerpos que no son JSON, logging con las claves de API ocultas (`redact`). Sesión y `sleep` inyectados para poder probar sin internet. Evidencia: `pytest -q` → `14 passed` · `ruff check .` → `All checks passed!`.
+- Paso 1.3 — `src/marketpulse/common/storage.py`: `bronze_path()` (`bronze/source=<fuente>/dt=<AAAA-MM-DD>/<nombre>.json`, nombres validados contra *path traversal*) y `write_bronze()` (respuesta original tal cual, escritura atómica con temporal + `os.replace`, fecha UTC). D-009. Evidencia: `pytest -q` → `27 passed` (incluye "dos ejecuciones el mismo día dejan 1 fichero" y "un fallo a mitad deja intacto el anterior") · `ruff check .` → `All checks passed!`.
+- Paso 1.4 — `src/marketpulse/ingest/frankfurter.py` (API **v2**, `providers=ECB`, una petición para todas las divisas, validación de forma con `UnexpectedResponseError`, aviso si falta una divisa) y `ingest/errors.py`. Documentación oficial consultada: v1 obsoleta y v2 mezcla bancos por defecto (D-010). Evidencia: `pytest -q` → `33 passed` · llamada real → `200 en 406 ms`, `data/bronze/source=frankfurter/dt=2026-10-20/frankfurter.json` con GBP 0,84028 y USD 1,1215; `data/` no aparece en `git status`.
+- Paso 1.5 — `src/marketpulse/ingest/coingecko.py`: `/simple/price` en una llamada (precio, capitalización, volumen, variación 24 h, `last_updated_at`), clave Demo **opcional** en cabecera `x-cg-demo-api-key` (D-011), aviso si falta un id. `COINGECKO_API_KEY` añadida a `.env.example`. Evidencia: `pytest -q` → `42 passed` · llamada real sin clave → `200 en 402 ms`, `data/bronze/source=coingecko/dt=2026-10-20/coingecko.json` con BTC, ETH y SOL. Pendiente: clave Demo antes de la Fase 3 y texto de atribución (Fase 8).
+- Paso 1.6 — `src/marketpulse/ingest/alphavantage.py`: `TIME_SERIES_DAILY` `compact` (100 días), 1 petición por símbolo con pausa de 1,5 s (*throttling*), detección de los "200 con aviso" (`Information`/`Note`/`Error Message`), fallo parcial (`PartialIngestError`) y `MissingApiKeyError` sin clave (D-012). Clave de Alpha Vantage creada por Alberto y guardada solo en `.env`. Evidencia: `pytest -q` → `54 passed` · llamada real → SPY, VT y QQQ con `200` y "100 días guardados"; la clave aparece como `'apikey': '***'` en todos los logs.
+- Paso 1.7 — `src/marketpulse/ingest/run.py` (`run_all()`: las tres fuentes siempre, una sola `dt`, `except Exception` por fuente con `logger.exception`; `main()`: `load_dotenv`, logging con hora, resumen, código de salida 0/1; `get_secret()`: clave vacía o de solo espacios = `None`) y `ingest/__main__.py`. Mejora de seguridad en `HttpClient`: cualquier otro `requests.RequestException` se convierte en `HttpError` sin el mensaje original ni encadenamiento (D-013). Evidencia: `pytest -q` → `64 passed` · `python -m marketpulse.ingest` → `Resumen: 3/3 fuentes correctas`, `$LASTEXITCODE` → `0` · con `ALPHAVANTAGE_API_KEY=" "` → `2/3`, `MissingApiKeyError` sin llamar a Alpha Vantage, `$LASTEXITCODE` → `1` · tras varias ejecuciones el mismo día `(Get-ChildItem -Recurse data -File).Count` → `5` (sin duplicados).
+  - **Nota para la Fase 2:** `dt` es la fecha de **ingesta** y `date` (dentro del JSON) la fecha del **dato**. Con la Lambda a las 06:00 UTC no coinciden (el BCE publica ~16:00 CET), y en fines de semana se repite el último día hábil. Silver debe usar `date` como fecha del dato y deduplicar por (`date`, `base`, `quote`).
+
 ### Problemas encontrados
+- Al ejecutar `pytest` desde `C:\WINDOWS\system32` (PowerShell de administrador), pytest recorrió carpetas del sistema y dio `PermissionError`. Causa: pytest y ruff trabajan sobre la carpeta actual. Solución: `cd` a la raíz del proyecto y usar una PowerShell normal (mínimo privilegio).
+- `.env` existía pero estaba vacío (0 bytes): `.env.example` es solo la plantilla, y las líneas se escriben a mano en `.env`.
+- Primera ejecución real de Alpha Vantage: SPY bien, y VT y QQQ con un `200` y `Information: ... (1 request per second)`. Hay un límite de ráfaga no documentado en la página de soporte. Solución: pausa de 1,5 s entre símbolos. El fallo parcial funcionó como estaba diseñado.
+- Al probar el código de salida, `$env:ALPHAVANTAGE_API_KEY = ""` no dejó la clave vacía: en PowerShell eso **borra** la variable, y `load_dotenv()` cargó la clave real (3 peticiones gastadas). Se probó con `" "` y se añadió `get_secret()` para que una clave de solo espacios cuente como ausente.
+
+- **Riesgos abiertos de esta fase:** (1) crear la clave Demo de CoinGecko antes de la Fase 3 (en Lambda las IP son compartidas); (2) fijar el texto de atribución de CoinGecko y la cita del BCE (Fase 8); (3) los precios de Alpha Vantage no están ajustados por dividendos (Fase 4).
+
 ### Qué ha aprendido Alberto
+- Qué es una API REST, cómo se lee una respuesta JSON y qué significan los códigos HTTP (2xx/4xx/5xx, 429).
+- Por qué toda llamada necesita *timeout*, y cuándo reintentar con espera exponencial (errores pasajeros) y cuándo no (4xx: el error es nuestro).
+- Que un 200 no siempre es un éxito (los avisos de Alpha Vantage) y que la documentación no lo cuenta todo (el límite de ráfaga): siempre hace falta una prueba real.
+- A proteger las claves de API: `.env` ignorado, plantilla `.env.example`, cabecera mejor que URL, `redact` en los logs y nunca el texto de las excepciones de `requests`.
+- Idempotencia mediante nombres de fichero deterministas, particionado `clave=valor`, escritura atómica y fecha UTC; la diferencia entre fecha de ingesta (`dt`) y fecha del dato (`date`).
+- A tratar los fallos parciales y a decidir dónde atrapar errores (solo los esperables abajo, todos arriba y con traza), y qué es un código de salida.
+- A probar sin internet con mocks, `monkeypatch`, `tmp_path`, `caplog`, `parametrize` y fixtures propias, inyectando dependencias (sesión HTTP, `sleep`).
+- Detalles de Windows: ejecutar desde la carpeta del proyecto, no usar PowerShell de administrador, y que `$env:X = ""` borra la variable.
+
 ### Cómo contarlo en una entrevista
+"Construí la ingesta diaria de tres APIs públicas (BCE vía Frankfurter, CoinGecko y Alpha Vantage) como un paquete Python con un cliente HTTP común: *timeout*, reintentos con espera exponencial solo para errores pasajeros y logs sin claves. Cada respuesta se guarda tal cual en una capa bronze particionada por fuente y fecha UTC, con escritura atómica, de modo que relanzar el proceso nunca duplica datos. Al probarlo con las APIs reales descubrí que Alpha Vantage devuelve errores con código 200 y tiene un límite de una petición por segundo que su documentación no menciona; lo detecté, lo documenté y lo resolví espaciando las peticiones. Todo está cubierto con 64 tests que no llaman a internet, y el proceso devuelve un código de salida que permite automatizarlo y vigilarlo."
+
 ### Pregunta típica de entrevista
+**P:** Tu proceso de ingesta falla a mitad y alguien lo relanza. ¿Cómo evitas datos duplicados o corruptos?
+**R:** Con idempotencia y escritura atómica. Cada fichero tiene una ruta que depende solo de la fuente, la fecha y el símbolo (`source=.../dt=.../SPY.json`), nunca de la hora, así que relanzar sobrescribe en lugar de añadir. Escribo primero en un temporal de la misma carpeta y lo renombro con `os.replace`, que es atómico: o queda el fichero anterior completo o el nuevo completo, nunca uno a medias. Además, valido la respuesta antes de escribir, para que un aviso de la API no se guarde como si fueran datos.
 
 ## Fase 2 · Transformación y data lake en S3
 **Criterios de aceptación:**
