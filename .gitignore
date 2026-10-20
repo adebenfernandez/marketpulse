@@ -17,6 +17,9 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 !*.tfvars.example
+# Planes guardados con `terraform plan -out`: pueden contener valores sensibles
+*.tfplan
+tfplan
 # OJO: .terraform.lock.hcl SÍ se sube (fija las versiones de los proveedores)
 
 # --- Datos descargados (se regeneran con la ingesta) ---

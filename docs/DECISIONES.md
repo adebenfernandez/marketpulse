@@ -200,3 +200,115 @@ Fuente: [Managed policies for your organization](https://docs.aws.amazon.com/acc
 **Mejora de seguridad asociada:** `HttpClient` convierte cualquier otro `requests.RequestException` en `HttpError` sin el mensaje original, que puede contener la URL con la clave, y sin encadenarlo. Así la traza de `logger.exception` no puede filtrar claves.
 
 **Robustez de las claves:** `get_secret()` trata una clave vacía o hecha solo de espacios como inexistente (`None`). Se detectó al probar el código de salida: en PowerShell, `$env:X = ""` borra la variable, y la prueba con `" "` habría llamado a Alpha Vantage con una clave basura, gastando cupo.
+
+---
+
+## D-014 · Primer Terraform: bucket del data lake con *state* local
+**Fecha:** 2026-10-20 · **Fase:** 2
+
+**Contexto:** el informe pide crear el bucket con Terraform desde el principio (mini-introducción), y el resto de la infraestructura llegará en la Fase 5.
+
+**Decisión:**
+- `infra/` con un fichero por tema: `versions.tf` (Terraform ≥ 1.10 y `hashicorp/aws ~> 6.69`; *lock file* con 6.69.1, que se sube a Git), `providers.tf` (región y `default_tags` `project` y `managed_by`), `variables.tf`, `s3.tf` y `outputs.tf`.
+- Bucket con `bucket_prefix = "marketpulse-datalake-"`: nombre único sin el número de cuenta. `force_destroy = false`.
+- Las tres protecciones: bloqueo de acceso público (las 4 opciones), cifrado **SSE-S3** (AES256, sin coste) y `BucketOwnerEnforced` (sin ACL).
+- **Credenciales fuera del código:** Terraform usa `AWS_PROFILE=marketpulse`, igual que la CLI. Así el mismo código servirá con OIDC en la Fase 6.
+- ***State* local** en `infra/terraform.tfstate` (ignorado por Git) hasta la Fase 5, cuando pasará a un *backend* en S3.
+- **`TF_DATA_DIR` fuera de OneDrive**, en `C:\Users\deben\.terraform-data\marketpulse` (aprobado por Alberto): el proveedor de AWS ocupa unos 819 MB (medido), por el mismo motivo que D-006.
+- `plan -out=tfplan` y `apply tfplan`, para aplicar exactamente lo revisado (`*.tfplan` y `tfplan` añadidos a `.gitignore`).
+
+**Descartado por ahora:** versionado del bucket (duplica el almacenamiento y bronze se puede regenerar), SSE-KMS (coste por clave y por petición) y política de "solo HTTPS" (se propondrá aparte, porque es una política de acceso).
+
+**Actualización (2026-10-20, paso 2.2b):** aprobada por Alberto la política de bucket **"solo HTTPS"** (`aws_s3_bucket_policy` generada con el *data source* `aws_iam_policy_document`): `Deny` de `s3:*` para cualquier principal sobre el bucket y sus objetos cuando `aws:SecureTransport = false`. No concede permisos y no es pública (un `Deny` no abre acceso), así que es compatible con `block_public_policy`. `depends_on` del bloqueo de acceso público para fijar el orden.
+
+---
+
+## D-015 · Silver: tres tablas con esquema explícito, reconstrucción completa y partición por año
+**Fecha:** 2026-10-20 · **Fase:** 2
+
+**Contexto:** hay que pasar el JSON original de tres APIs a tablas limpias en Parquet, sin duplicados, aunque cada fuente repite datos de forma distinta (el BCE no publica en fin de semana; Alpha Vantage devuelve 100 días cada día).
+
+**Decisión:**
+- **Librerías:** `pandas`, `pyarrow` y `boto3` (aprobadas por Alberto). Versiones mínimas `pandas>=2.2` y `pyarrow>=18`, para no atarnos a pandas 3.0: hay que comprobar qué versiones trae la capa *AWS SDK for pandas* en la Fase 3. En local están instaladas pandas 3.0.6, pyarrow 26.0.0 y boto3 1.43.115.
+- **Tres tablas:** `fx_rates`, `crypto_prices` y `stock_prices`, con un **esquema `pyarrow` explícito** (`transform/schemas.py`), forzado al escribir. Precios en `float64` (suficiente para análisis; `decimal` se reservaría para contabilidad). Nombres en *snake_case*.
+- **Tiempo:** `price_at` (CoinGecko) es un `timestamp` UTC y su `date` es el día UTC. Las fechas de sesión de Alpha Vantage y del BCE son fechas de calendario y **no se convierten** de zona horaria.
+- **Deduplicado por clave:** fx `(date, base, quote)` y acciones `(date, symbol)` → gana el `ingest_date` más reciente; cripto `(date, coin_id, vs_currency)` → gana el `price_at` más tardío. Columna `ingest_date` como linaje.
+- **Reconstrucción completa** desde todo bronze en cada ejecución, escrita en una carpeta temporal y sustituida al final; nombres de fichero fijos (`part-0.parquet`).
+- **Partición por `year`** (layout Hive `year=2026/`), no por día, para evitar el problema de los ficheros pequeños.
+
+**Alternativas descartadas:** carga incremental (más compleja, y no compensa con unos pocos MB al año); partición diaria (miles de ficheros de 1 KB); dejar que pandas deduzca los tipos (un texto inesperado acabaría como `object` sin avisar).
+
+**Limitación aceptada:** el precio cripto es una **foto** del momento de la ingesta (~06:00 UTC con Lambda), no un cierre diario oficial; el mercado cripto no cierra. Se documentará en el modelo de la Fase 4.
+
+---
+
+## D-016 · Gold: tabla larga `daily_prices` con moneda y tipo de precio explícitos
+**Fecha:** 2026-10-20 · **Fase:** 2
+
+**Contexto:** gold es lo que consultarán Athena (Fase 4), el agente text-to-SQL (Fase 7) y el dashboard. Hay que unir tres clases de activo con precios que no significan lo mismo.
+
+**Opciones:** tabla **ancha** (una columna por activo) · tabla **larga** (una fila por día y activo) · una tabla gold por clase de activo.
+
+**Decisión:** una tabla **larga** `daily_prices` con las columnas `date`, `asset`, `asset_class` (`crypto` | `equity` | `fx`), `price`, `currency`, `price_type` (`close` | `snapshot` | `reference_rate`) y `source`. Clave `(date, asset)`, partición `year=`.
+- **Divisas:** `asset = "EUR/USD"`, y `currency` es la *quote* (el precio del EUR expresado en USD).
+- **Cripto:** solo la `vs_currency` de la watchlist, para que la clave sea única.
+- **Acciones/ETF:** `currency = "USD"`. Es un **supuesto documentado** (los símbolos de la watchlist cotizan en EE. UU.); si se añade un valor europeo habrá que llevar la moneda a la watchlist.
+- **Sin volumen:** el de las acciones son títulos negociados y el de cripto son USD en 24 h; mezclarlos en una columna invitaría a errores. Sigue disponible en silver.
+- Nuevo punto de entrada `python -m marketpulse.transform` (silver y después gold). Si una capa falla, el proceso para: gold depende de silver.
+
+**Motivo:** la tabla larga admite activos nuevos sin cambiar el esquema, es la forma natural para SQL (`WHERE asset = 'BTC'`, `GROUP BY asset_class`) y, con `currency` y `price_type` en cada fila, el agente no puede confundir un tipo de cambio con un precio en dólares. La tabla ancha obligaría a cambiar el esquema con cada activo nuevo.
+
+**Actualización (2026-10-20, paso 2.5):** gold publica **solo los activos de la watchlist actual**. Silver lo guarda todo; si se quita un activo de la watchlist, su historia sigue en bronze y en silver. Se hace así para que la comprobación de frescura de cada activo no falle para siempre por un activo retirado. La definición de "activos publicados" está en una sola función (`gold.watchlist_assets`), que usan gold y calidad.
+
+---
+
+## D-017 · Calidad de datos: reglas propias, *fail fast* antes de escribir y dos severidades
+**Fecha:** 2026-10-20 · **Fase:** 2
+
+**Contexto:** el criterio de aceptación pide comprobaciones de nulos, duplicados, rangos y frescura que pasen con datos buenos y fallen con un dato erróneo.
+
+**Opciones:** librerías de calidad (Great Expectations, pandera, Soda) · comprobaciones propias con pandas.
+
+**Decisión:**
+- **Comprobaciones propias** (`quality/checks.py`): `not_null`, `unique`, `in_range`, `rule` (entre columnas), `accepted_values`, `freshness` y `max_daily_jump`. Cada una devuelve un `CheckResult` con el número de filas que fallan y hasta 5 ejemplos.
+- **Reglas de MarketPulse** (`quality/rules.py`):
+  - silver: claves únicas, sin nulos (salvo `symbol` de cripto), precios > 0, volúmenes ≥ 0 y coherencia OHLC (`low ≤ open, close ≤ high`);
+  - gold: sin nulos, `(date, asset)` única, precio > 0, valores admitidos en `asset_class` y `price_type`, y **frescura por activo de la watchlist** (máximo 2 días en cripto y 5 en bolsa y divisas, por el peor caso de Semana Santa). Un activo esperado sin datos también falla.
+- **Dos severidades:** `ERROR` para y `WARNING` solo avisa. Los saltos diarios (> 50 % cripto, > 25 % bolsa, > 10 % divisas) son aviso, porque pueden ser reales (un desplome, un *split*).
+- ***Fail fast* antes de escribir:** `run_transform` construye silver y gold en memoria, los comprueba y **solo escribe si no hay errores**. Si los hay, se conserva la última versión buena y el proceso sale con código 1.
+
+**Motivo:** son pocas reglas y muy claras. Escribirlas enseña qué hace una librería de calidad por dentro, sin añadir una dependencia pesada; en un equipo real se valoraría pandera o Great Expectations. Comprobar antes de escribir evita publicar datos malos aunque sea un instante.
+
+**Bug encontrado al probar con datos reales:** `max_daily_jump` daba 305 falsos positivos. Si el filtro dejaba la tabla vacía, `.assign()` adoptaba el índice de la columna asignada y fabricaba filas con NaN. Se corrigió añadiendo las columnas antes de filtrar, con un test de regresión.
+
+---
+
+## D-018 · Subida a S3: mismas rutas, solo lo que cambia y nunca borrar
+**Fecha:** 2026-10-20 · **Fase:** 2
+
+**Contexto:** el último criterio de la fase pide las tres capas en S3. En la Fase 3, Lambda escribirá directamente en el bucket; ahora hay que subir lo que se ha generado en local.
+
+**Opciones:** `aws s3 sync` (CLI, sin código) · subida con `boto3` · sincronizar borrando lo que sobra (`--delete`).
+
+**Decisión:**
+- `common/s3.py` con `boto3`. Se ejecuta con `python -m marketpulse.common.s3`, y el bucket sale de `MARKETPULSE_BUCKET` (en `.env`; no es secreto).
+- **Mismas rutas** que en local, con `/` como separador aunque Windows use `\`.
+- **Solo sube lo que cambia:** compara el MD5 local con el ETag de S3, que con `put_object` (sin multiparte) y SSE-S3 es el MD5. Es una petición LIST por capa y un PUT por fichero cambiado.
+- **Nunca borra objetos en S3.** No hace falta, porque los nombres son fijos y volver a subir sobrescribe. Borrar es la operación peligrosa e irreversible (el bucket no tiene versionado).
+- Tests con un `FakeS3` en memoria: sin AWS ni credenciales.
+
+**Motivo:** `aws s3 sync` haría lo mismo hoy, pero la Fase 3 necesita esa lógica en Python dentro de Lambda. Escribirla ahora deja el código probado y reutilizable. **Contrapartida aceptada:** si una partición desaparece en local (por ejemplo, un año entero de silver), su objeto se quedaría huérfano en S3. Con particiones por año, en la práctica no ocurre, y si hiciera falta se borraría a mano tras revisarlo.
+
+
+---
+
+## D-019 · `botocore[crt]` en el grupo `dev` para usar `aws login` desde boto3
+**Fecha:** 2026-10-20 · **Fase:** 2
+
+**Contexto:** la primera subida real a S3 falló con `MissingDependencyException: Using the login credential provider requires an additional dependency ... pip install "botocore[crt]"`. boto3 necesita la librería oficial `awscrt` para leer las credenciales de `aws login`. La AWS CLI la trae incorporada y Terraform (Go) tiene su propio lector, por eso no había fallado antes.
+
+**Opciones:** instalar `botocore[crt]` · exportar las credenciales temporales a la ventana con `aws configure export-credentials --format powershell` en cada sesión.
+
+**Decisión:** `botocore[crt]` en el grupo `dev` de `pyproject.toml` (aprobado por Alberto). Instalado: `awscrt` 0.36.0. Comprobado con una llamada de solo lectura a STS desde boto3 → `assumed-role/AccountFullAccessRole`.
+
+**Motivo:** es la solución que indica el propio error, es oficial de AWS y no cambia el código. Va en `dev` porque solo hace falta en local: en Lambda y en GitHub Actions las credenciales vienen de un rol. La alternativa obliga a repetir un paso manual y deja las credenciales en variables de entorno.

@@ -14,6 +14,10 @@ dependencies = [
     "requests>=2.32",       # llamadas HTTP a las APIs (D-008)
     "PyYAML>=6.0",          # leer config/watchlist.yaml
     "python-dotenv>=1.0",   # cargar claves de API desde .env en local
+    # Transformación y data lake (D-015). Las tres vienen en la capa "AWS SDK for pandas" de Lambda
+    "pandas>=2.2",          # tablas en memoria (DataFrame)
+    "pyarrow>=18",          # leer y escribir Parquet, esquemas con tipos
+    "boto3>=1.35",          # SDK de AWS para Python (subida a S3, paso 2.6)
 ]
 
 [project.optional-dependencies]
@@ -21,6 +25,9 @@ dependencies = [
 dev = [
     "ruff>=0.14",
     "pytest>=8.4",
+    # boto3 necesita awscrt para leer las credenciales de `aws login` (D-019). Solo en local:
+    # en Lambda y en GitHub Actions las credenciales vienen de un rol
+    "botocore[crt]",
 ]
 
 [tool.setuptools.packages.find]

@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 1 terminada (2026-10-20)
-**Siguiente paso:** Fase 2 · Transformación y data lake en S3 (nueva sesión)
+**Fase actual:** Fase 2 terminada (2026-10-20)
+**Siguiente paso:** Fase 3 · Automatización con Lambda y EventBridge (nueva sesión)
 
 Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 
@@ -9,7 +9,7 @@ Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 |------|--------|--------|
 | 0 | Preparación y seguridad | ✅ |
 | 1 | Ingesta en local | ✅ |
-| 2 | Transformación y data lake en S3 | ⬜ |
+| 2 | Transformación y data lake en S3 | ✅ |
 | 3 | Automatización con Lambda y EventBridge | ⬜ |
 | 4 | SQL y modelo analítico en Athena | ⬜ |
 | 5 | Infraestructura como código completa | ⬜ |
@@ -65,7 +65,7 @@ Plantilla para cada fase (se rellena al trabajarla):
 - La carpeta del proyecto está dentro de OneDrive y Alberto decide mantenerla ahí → venv fuera de OneDrive (D-006).
 - La cuenta usa la **"nueva experiencia de AWS"**: no hay usuarios IAM con consola, ni Identity Center ni Organizations, y la región es fija (`eu-north-1`). Se adapta el plan (D-001, D-002, D-003).
 - La SCP gestionada impide verificar el email de las alertas de Budgets → alertas a través de SNS (D-004).
-- **Riesgos abiertos:** (1) comprobar que Terraform lee las credenciales de `aws login` (primer `terraform plan`, Fase 2); (2) comprobar que el OIDC de GitHub Actions funciona con las SCP de los proyectos (Fase 6); (3) el plan gratuito termina hacia abril de 2027.
+- **Riesgos abiertos:** (1) ~~comprobar que Terraform lee las credenciales de `aws login`~~ → resuelto en el paso 2.2; (2) comprobar que el OIDC de GitHub Actions funciona con las SCP de los proyectos (Fase 6); (3) el plan gratuito termina hacia abril de 2027.
 
 ### Qué ha aprendido Alberto
 - La diferencia entre cuenta raíz, identidad personal con MFA y credenciales temporales (roles asumidos con STS), y por qué no se usan claves permanentes.
@@ -125,15 +125,43 @@ Plantilla para cada fase (se rellena al trabajarla):
 
 ## Fase 2 · Transformación y data lake en S3
 **Criterios de aceptación:**
-- [ ] El bucket tiene acceso público bloqueado y cifrado
-- [ ] Existen las tres capas en S3
-- [ ] Las comprobaciones de calidad pasan, y fallan con un dato erróneo a propósito en un test
+- [x] El bucket tiene acceso público bloqueado y cifrado — comprobado con `get-public-access-block` y `get-bucket-encryption` (paso 2.2), más "solo HTTPS" (2.2b)
+- [x] Existen las tres capas en S3 — `aws s3 ls --recursive`: 5 objetos en `bronze/`, 3 en `silver/` y 1 en `gold/`
+- [x] Las comprobaciones de calidad pasan, y fallan con un dato erróneo a propósito en un test — `Calidad: 59 comprobaciones, 0 fallan` con los datos reales; `tests/test_quality.py` las hace fallar a propósito
 
 ### Pasos completados
+- Paso 2.1 — Precios oficiales de S3 en `eu-north-1` (AWS Price List API, publicada el 2026-10-15): S3 Standard 0,023 USD/GB-mes (primeros 50 TB) · PUT/COPY/POST/LIST 0,005 USD por 1.000 · GET 0,0004 USD por 1.000 · entrada desde internet 0 USD · salida a internet 0,09 USD/GB, con los primeros 100 GB/mes gratis (agregados en toda AWS). Volumen medido: bronze ≈ 55 KB/día. Estimación: < 0,01 USD/mes durante el primer año. Dependencias aprobadas por Alberto: `pandas`, `pyarrow`, `boto3` y el proveedor de Terraform `hashicorp/aws`.
+- Paso 2.2 — `infra/` (Terraform): bucket `marketpulse-datalake-<sufijo>` con bloqueo de acceso público, SSE-S3, `BucketOwnerEnforced` y `default_tags` (D-014). `TF_DATA_DIR` en `C:\Users\deben\.terraform-data\marketpulse`. `terraform init/fmt/validate/plan` → `Plan: 4 to add`; `terraform apply "tfplan"` ejecutado por Alberto tras su "sí" → `Apply complete! Resources: 4 added`. Evidencia con la API de AWS: `get-public-access-block` → las 4 a `true` · `get-bucket-encryption` → `AES256` (y SSE-C bloqueado por defecto por AWS) · `get-bucket-ownership-controls` → `BucketOwnerEnforced` · `get-bucket-tagging` → `project`/`managed_by`. `terraform.tfstate` y `tfplan` ignorados por Git. **Riesgo de la Fase 0 resuelto:** Terraform lee las credenciales de `aws login`.
+- Paso 2.2b — Política de bucket "solo HTTPS" (`Deny s3:*` si `aws:SecureTransport = false`), aprobada por Alberto. `plan` → `1 to add`; `apply` → `1 added`. Evidencia: `get-bucket-policy` → la política guardada · `aws s3 ls s3://<bucket>` por HTTPS → sin error (bucket vacío) · el mismo comando con `--endpoint-url http://...` → `AccessDenied ... with an explicit deny in a resource-based policy`. Un segundo `apply "tfplan"` por error → `Saved plan is stale` (Terraform se niega a aplicar un plan desactualizado; no cambió nada).
+- Paso 2.3 — `src/marketpulse/transform/` (`schemas.py`, `bronze.py`, `silver.py`, `tables.py`): tres tablas silver (`fx_rates`, `crypto_prices`, `stock_prices`) con esquema `pyarrow` explícito, nombres en snake_case, precios de texto a número, `price_at` en UTC, deduplicado por clave (gana lo más reciente), reconstrucción completa con sustitución segura de carpeta y partición `year=` (D-015). `pandas` 3.0.6, `pyarrow` 26.0.0 y `boto3` 1.43.115 instalados. Evidencia: `pytest -q` → `75 passed` · con los datos reales → `fx_rates` 2 filas, `crypto_prices` 3, `stock_prices` 300 · tipos dentro del Parquet: `date32`, `float64`, `int64`, `timestamp[us, tz=UTC]` · compresión Snappy: 54,7 KB de JSON → 14,7 KB de Parquet.
+- Paso 2.4 — `transform/gold.py`: tabla gold `daily_prices` en formato largo (`date`, `asset`, `asset_class`, `price`, `currency`, `price_type`, `source`), sin volumen, partición `year=` (D-016). Punto de entrada `python -m marketpulse.transform` (`transform/run.py`). Evidencia: `pytest -q` → `81 passed` · con los datos reales → `Gold daily_prices: 305 filas {'equity': 300, 'crypto': 3, 'fx': 2}`, código de salida 0; EUR/GBP con `currency = GBP`.
+  - **Nota para la Fase 4:** las rentabilidades se calculan con `LAG` sobre la sesión anterior **del mismo activo** (`PARTITION BY asset ORDER BY date`), nunca sobre "ayer" en el calendario. El lunes de una acción compara con el viernes (3 días naturales), mientras que cripto tiene 7 sesiones por semana. Para comparar clases: alinear fechas o comparar rentabilidades semanales o mensuales. Al anualizar la volatilidad: unas 252 sesiones al año en bolsa frente a 365 en cripto.
+- Paso 2.5 — `src/marketpulse/quality/` (`checks.py`, `rules.py`): nulos, duplicados, rangos, coherencia OHLC, valores admitidos, frescura por activo y saltos diarios (aviso). `run_transform` construye silver y gold en memoria, comprueba y solo escribe si no hay errores; gold publica solo los activos de la watchlist (D-017, actualización de D-016). Evidencia: `python -m marketpulse.transform` → `Calidad: 59 comprobaciones, 0 fallan`, código 0 · `pytest -q` → `103 passed`, incluidos `test_silver_con_dato_erroneo_falla` (×5), `test_un_dato_erroneo_no_se_publica_y_se_conserva_lo_anterior` y `test_datos_viejos_no_se_publican`.
+- Paso 2.6 — `src/marketpulse/common/s3.py`: subida de bronze, silver y gold con las mismas rutas (claves con `/`), solo lo que cambia (MD5 local frente al ETag de S3) y sin borrar nunca (D-018). `MARKETPULSE_BUCKET` en `.env`. Dependencia `botocore[crt]` en `dev` para que boto3 lea `aws login` (D-019). Evidencia: `python -m marketpulse.common.s3` → `S3: 9 subidos, 0 sin cambios` · `aws s3 ls --recursive` → los 9 objetos en `bronze/`, `silver/` y `gold/` · segunda ejecución → `S3: 0 subidos, 9 sin cambios` · `pytest -q` → `108 passed`.
 ### Problemas encontrados
+- La sesión de `aws login` caducó (12 h): `Your session has expired` → `aws login --profile marketpulse`.
+- `max_daily_jump` daba 305 falsos positivos: `.assign()` sobre una tabla filtrada vacía fabricaba filas NaN. Corregido con un test de regresión (D-017).
+- boto3 no podía leer las credenciales de `aws login` (`MissingDependencyException ... botocore[crt]`). Se instaló `botocore[crt]` en `dev` (D-019).
+- Un segundo `terraform apply "tfplan"` por error → `Saved plan is stale`: Terraform se negó y no cambió nada.
+- Barras invertidas de Windows rompiendo scripts (`\U` en `sed` y en textos de Python): se usan *raw strings* o ficheros de script.
+- **Riesgos abiertos de esta fase:** (1) comprobar en la Fase 3 qué versiones de pandas y pyarrow trae la capa *AWS SDK for pandas* (en local: pandas 3.0.6; el código pide `>=2.2`); (2) el precio cripto es una foto a la hora de la ingesta, no un cierre (documentarlo en el modelo de la Fase 4); (3) las rentabilidades de la Fase 4 deben usar la sesión anterior del mismo activo (ver la nota del paso 2.4).
+
 ### Qué ha aprendido Alberto
+- Cuánto cuesta S3 y cómo se calcula (GB-mes, PUT/GET, transferencia), consultando la fuente oficial antes de crear nada.
+- Terraform desde cero: provider, recurso, *state*, *lock file*, `init/fmt/validate/plan/apply`, `plan -out` + `apply tfplan`, grafo de dependencias, `data` y `depends_on`, y por qué un segundo `plan` dice "No changes".
+- Las protecciones de un bucket: bloqueo de acceso público, cifrado en reposo (SSE-S3) y en tránsito (política "solo HTTPS"), sin ACL; y a leer un `AccessDenied ... explicit deny in a resource-based policy`.
+- Parquet y el formato columnar, compresión, esquemas con tipos exactos, fecha de calendario frente a instante UTC, deduplicado por clave y la arquitectura medallion bronze → silver → gold.
+- A diseñar una tabla gold para quien la consume: formato largo, moneda y tipo de precio explícitos, y no mezclar unidades.
+- Calidad de datos: nulos, duplicados, rangos, coherencia, frescura, errores frente a avisos, *fail fast* antes de escribir y "todo o nada" frente a cuarentena.
+- boto3, MD5/ETag para subir solo lo que cambia, y por qué el código no borra nunca en S3.
+- Que los problemas reales aparecen al ejecutar de verdad (falsos positivos, la dependencia de `aws login`) y se resuelven leyendo el mensaje.
+
 ### Cómo contarlo en una entrevista
+"Monté un data lake en S3 con tres capas: bronze con la respuesta original de cada API, silver con tablas Parquet limpias y tipadas, y gold con una tabla diaria por activo pensada para análisis. El bucket lo creé con Terraform, con el acceso público bloqueado, cifrado en reposo y una política que rechaza cualquier conexión sin HTTPS. La transformación construye las capas en memoria, pasa 59 comprobaciones de calidad (nulos, duplicados, rangos, coherencia OHLC y frescura por activo) y solo publica si no hay errores, así que un dato malo nunca llega a gold. Al probarlo con datos reales encontré un falso positivo en una de las reglas, lo diagnostiqué y lo blindé con un test de regresión."
+
 ### Pregunta típica de entrevista
+**P:** ¿Por qué guardas los datos en Parquet y no en CSV o JSON?
+**R:** Porque es columnar: cada columna se guarda junta, así que una consulta que solo usa dos columnas lee solo esas dos, y los valores parecidos se comprimen muy bien. En mi proyecto, 55 KB de JSON se quedaron en 15 KB de Parquet. Además, Parquet guarda el esquema con los tipos (fecha, decimal, entero), así que quien lo lee no tiene que adivinarlos. Con Athena, que cobra por datos escaneados, eso se traduce directamente en consultas más rápidas y más baratas.
 
 ## Fase 3 · Automatización con Lambda y EventBridge
 **Criterios de aceptación:**
