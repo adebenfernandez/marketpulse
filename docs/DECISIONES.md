@@ -312,3 +312,53 @@ Fuente: [Managed policies for your organization](https://docs.aws.amazon.com/acc
 **Decisión:** `botocore[crt]` en el grupo `dev` de `pyproject.toml` (aprobado por Alberto). Instalado: `awscrt` 0.36.0. Comprobado con una llamada de solo lectura a STS desde boto3 → `assumed-role/AccountFullAccessRole`.
 
 **Motivo:** es la solución que indica el propio error, es oficial de AWS y no cambia el código. Va en `dev` porque solo hace falta en local: en Lambda y en GitHub Actions las credenciales vienen de un rol. La alternativa obliga a repetir un paso manual y deja las credenciales en variables de entorno.
+
+---
+
+## D-020 · Lambda en arm64 con la capa AWS SDK for pandas y un zip determinista construido con Python
+**Fecha:** 2026-10-20 · **Fase:** 3
+
+**Contexto:** las Lambdas necesitan pandas y pyarrow (cientos de MB) además de `requests`, `PyYAML` y `python-dotenv`. El límite de Lambda es de 250 MB descomprimidos, sumando función y capas, y 50 MB para un zip subido directamente.
+
+**Opciones:**
+- Arquitectura: x86_64 o arm64 (Graviton).
+- Dependencias pesadas: meterlas en nuestro zip, crear nuestra propia capa o usar la capa gestionada *AWS SDK for pandas*.
+- Construcción del zip: el proveedor de Terraform `hashicorp/archive` (dependencia nueva), una imagen de contenedor o un script de Python propio.
+
+**Decisión (aprobada por Alberto):**
+- **arm64**: un 20 % más barato por GB-s en `eu-north-1` (0,0000133334 frente a 0,0000166667 USD) y la capa existe para arm64.
+- **Capa gestionada** `arn:aws:lambda:eu-north-1:336392948345:layer:AWSSDKPandas-Python313-Arm64:16` (versión 3.17.1: pandas 3.0.1 y pyarrow 24.0.0).
+- **`scripts/build_lambda.py`** genera `build/lambda.zip` (ignorado por Git) con nuestro código, `config/watchlist.yaml` y las dependencias que no trae la capa. Esas dependencias se leen de `pyproject.toml`, se fijan con `==` a la versión del venv local (la que pasó los tests) y se instalan con `pip --platform manylinux2014_aarch64 --only-binary=:all: --no-compile`. Resultado: 1,48 MB comprimido y 5,21 MB descomprimido.
+- **Zip determinista:** orden alfabético, fecha fija (1980-01-01), sin `.pyc`, sin `bin/` y sin los `RECORD` de pip. Así, el mismo contenido da el mismo SHA-256 y Terraform solo redespliega cuando algo cambia de verdad.
+
+**Motivo:** el código del proyecto no cambia según la arquitectura, porque las librerías compiladas se descargan ya hechas para arm64. La capa gestionada la mantiene AWS y evita compilar pyarrow. El script no añade dependencias y verifica el resultado: ficheros obligatorios presentes, nada de la capa duplicado, solo binarios de Linux arm64 y dentro de los límites de tamaño.
+
+**Problema encontrado:** las dos primeras construcciones daban hashes distintos. Causa: pip compilaba `.pyc` y generaba lanzadores `.exe` de Windows con la hora dentro, y sus huellas acababan en los ficheros `RECORD`. Solución: `--no-compile` y excluir los `RECORD`, que solo usa pip para desinstalar.
+
+**Limitación aceptada:** el zip solo se puede probar de verdad en Lambda (Linux arm64). La comprobación real será la invocación manual del paso 3.7.
+
+---
+
+## D-021 · Claves de API: parámetros SecureString creados por Terraform con valor de relleno y escritos con la CLI
+**Fecha:** 2026-10-20 · **Fase:** 3
+
+**Contexto:** la Lambda de ingesta necesita las claves de CoinGecko y Alpha Vantage. En AWS no hay `.env`, y el *state* de Terraform guarda en texto plano todos los valores que gestiona.
+
+**Opciones:**
+1. Variables de entorno de la Lambda.
+2. Parámetro con el valor real pasado a Terraform.
+3. `value_wo`, atributo de solo escritura que no se guarda en el *state*.
+4. Parámetro con valor de relleno + `ignore_changes`, y el valor real escrito con la CLI.
+5. Secrets Manager.
+
+**Decisión:** opción 4. Dos `aws_ssm_parameter` (`/marketpulse/coingecko_api_key` y `/marketpulse/alphavantage_api_key`) de tipo `SecureString`, nivel Standard y cifrados con la clave gestionada `alias/aws/ssm`. Alberto escribe el valor con `aws ssm put-parameter --overwrite`, leyendo la clave de `.env` a una variable de PowerShell para que no quede en el historial.
+
+**Motivo:**
+- Opciones 1 y 2: el secreto acabaría en el *state*, y en el caso 1 también sería visible en la consola de Lambda.
+- Opción 3: obliga a tener las claves en cada `plan`, también en GitHub Actions (Fase 6).
+- Opción 5: es de pago y está en la lista de servicios prohibidos sin permiso.
+- Opción 4: el secreto no pasa nunca por Terraform, y el "cajón" (nombre, tipo, cifrado y etiquetas) sí queda como código.
+
+**Comprobado:**
+- La política de la clave `aws/ssm` permite `kms:Decrypt` a cualquier principal de la cuenta, pero solo a través de SSM (`kms:CallerAccount` + `kms:ViaService = ssm.eu-north-1.amazonaws.com`).
+- Por lo tanto, el rol de la Lambda **no necesita `kms:Decrypt`**: le basta con `ssm:GetParameters` sobre los dos ARN.

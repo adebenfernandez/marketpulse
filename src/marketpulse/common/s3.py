@@ -89,6 +89,27 @@ def upload_layers(
     return {"uploaded": uploaded, "unchanged": unchanged}
 
 
+def download_layer(client, bucket: str, layer: str, root: Path) -> int:
+    """Descarga una capa entera de S3 a `root`, con las mismas rutas. Devuelve cuántos objetos.
+
+    Lo usa la Lambda de transformación: necesita TODO bronze en su disco temporal (/tmp) para
+    reconstruir silver y gold, igual que hace el código en local con la carpeta data/.
+    """
+    root = root.resolve()
+    count = 0
+    for key in sorted(remote_etags(client, bucket, f"{layer}/")):
+        path = (root / key).resolve()
+        # Defensa contra path traversal: una clave como "bronze/../../etc/x" no puede escribir
+        # fuera de `root`. En nuestro bucket no debería existir, pero no cuesta nada comprobarlo
+        if not path.is_relative_to(root):
+            raise ValueError(f"Clave de S3 fuera de la carpeta de destino: {key!r}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(client.get_object(Bucket=bucket, Key=key)["Body"].read())
+        count += 1
+    logger.info("S3: %d objetos descargados de s3://%s/%s/", count, bucket, layer)
+    return count
+
+
 def main() -> int:
     import boto3  # aquí y no arriba: los tests no necesitan cargar boto3 ni tener credenciales
     from dotenv import load_dotenv

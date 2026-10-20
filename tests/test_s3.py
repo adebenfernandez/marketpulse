@@ -1,6 +1,5 @@
 """Tests de la subida a S3 con un S3 FALSO en memoria: sin AWS, sin credenciales, sin coste."""
 
-import hashlib
 import logging
 from datetime import date
 
@@ -8,30 +7,7 @@ import pytest
 
 from marketpulse.common import s3
 from marketpulse.common.storage import write_bronze
-
-
-class FakeS3:
-    """Imita lo que usamos del cliente de boto3: put_object y el paginador de list_objects_v2."""
-
-    def __init__(self):
-        self.objects: dict[str, bytes] = {}
-        self.puts = 0
-
-    def put_object(self, Bucket, Key, Body, ContentType):  # noqa: N803 (nombres de boto3)
-        self.objects[Key] = Body
-        self.puts += 1
-
-    def get_paginator(self, name):
-        assert name == "list_objects_v2"
-        return self
-
-    def paginate(self, Bucket, Prefix):  # noqa: N803
-        contents = [
-            {"Key": k, "ETag": f'"{hashlib.md5(v).hexdigest()}"'}  # con comillas, como el real
-            for k, v in sorted(self.objects.items())
-            if k.startswith(Prefix)
-        ]
-        yield {"Contents": contents} if contents else {}
+from tests.fakes import FakeS3
 
 
 @pytest.fixture
@@ -87,3 +63,20 @@ def test_main_sin_bucket_da_error_sin_llamar_a_aws(monkeypatch, caplog):
     with caplog.at_level(logging.ERROR):
         assert s3.main() == 1
     assert "MARKETPULSE_BUCKET" in caplog.text
+
+
+def test_download_layer_trae_solo_esa_capa_con_las_mismas_rutas(lake, tmp_path_factory):
+    fake = FakeS3()
+    s3.upload_layers(fake, "bucket", root=lake)
+    destino = tmp_path_factory.mktemp("lambda_tmp")
+    assert s3.download_layer(fake, "bucket", "bronze", destino) == 2
+    spy = destino / "bronze" / "source=alphavantage" / "dt=2026-10-20" / "SPY.json"
+    assert spy.read_bytes() == (lake / spy.relative_to(destino)).read_bytes()
+    assert not (destino / "gold").exists()  # solo la capa pedida
+
+
+def test_download_layer_rechaza_claves_que_salen_de_la_carpeta(tmp_path):
+    fake = FakeS3()
+    fake.objects["bronze/../../fuera.json"] = b"{}"
+    with pytest.raises(ValueError, match="fuera de la carpeta"):
+        s3.download_layer(fake, "bucket", "bronze", tmp_path / "destino")

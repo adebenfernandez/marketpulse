@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 2 terminada (2026-10-20)
-**Siguiente paso:** Fase 3 · Automatización con Lambda y EventBridge (nueva sesión)
+**Fase actual:** Fase 3 en curso (2026-10-20)
+**Siguiente paso:** 2026-10-21 a partir de las 06:35 UTC (08:35 en España): comprobar la ejecución programada (criterio 3) y cerrar la Fase 3
 
 Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 
@@ -10,7 +10,7 @@ Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 | 0 | Preparación y seguridad | ✅ |
 | 1 | Ingesta en local | ✅ |
 | 2 | Transformación y data lake en S3 | ✅ |
-| 3 | Automatización con Lambda y EventBridge | ⬜ |
+| 3 | Automatización con Lambda y EventBridge | 🟡 |
 | 4 | SQL y modelo analítico en Athena | ⬜ |
 | 5 | Infraestructura como código completa | ⬜ |
 | 6 | CI/CD con GitHub Actions | ⬜ |
@@ -65,7 +65,7 @@ Plantilla para cada fase (se rellena al trabajarla):
 - La carpeta del proyecto está dentro de OneDrive y Alberto decide mantenerla ahí → venv fuera de OneDrive (D-006).
 - La cuenta usa la **"nueva experiencia de AWS"**: no hay usuarios IAM con consola, ni Identity Center ni Organizations, y la región es fija (`eu-north-1`). Se adapta el plan (D-001, D-002, D-003).
 - La SCP gestionada impide verificar el email de las alertas de Budgets → alertas a través de SNS (D-004).
-- **Riesgos abiertos:** (1) ~~comprobar que Terraform lee las credenciales de `aws login`~~ → resuelto en el paso 2.2; (2) comprobar que el OIDC de GitHub Actions funciona con las SCP de los proyectos (Fase 6); (3) el plan gratuito termina hacia abril de 2027.
+- **Riesgos abiertos:** (1) ~~comprobar que Terraform lee las credenciales de `aws login`~~ → resuelto en el paso 2.2; (2) comprobar que el OIDC de GitHub Actions funciona con las SCP de los proyectos (Fase 6) → **la SCP deniega `iam:*Provider*`** (ver Fase 3, paso 3.1); (3) el plan gratuito termina hacia abril de 2027.
 
 ### Qué ha aprendido Alberto
 - La diferencia entre cuenta raíz, identidad personal con MFA y credenciales temporales (roles asumidos con STS), y por qué no se usan claves permanentes.
@@ -104,7 +104,7 @@ Plantilla para cada fase (se rellena al trabajarla):
 - Primera ejecución real de Alpha Vantage: SPY bien, y VT y QQQ con un `200` y `Information: ... (1 request per second)`. Hay un límite de ráfaga no documentado en la página de soporte. Solución: pausa de 1,5 s entre símbolos. El fallo parcial funcionó como estaba diseñado.
 - Al probar el código de salida, `$env:ALPHAVANTAGE_API_KEY = ""` no dejó la clave vacía: en PowerShell eso **borra** la variable, y `load_dotenv()` cargó la clave real (3 peticiones gastadas). Se probó con `" "` y se añadió `get_secret()` para que una clave de solo espacios cuente como ausente.
 
-- **Riesgos abiertos de esta fase:** (1) crear la clave Demo de CoinGecko antes de la Fase 3 (en Lambda las IP son compartidas); (2) fijar el texto de atribución de CoinGecko y la cita del BCE (Fase 8); (3) los precios de Alpha Vantage no están ajustados por dividendos (Fase 4).
+- **Riesgos abiertos de esta fase:** (1) ~~crear la clave Demo de CoinGecko antes de la Fase 3~~ → resuelto en el paso 3.2; (2) fijar el texto de atribución de CoinGecko y la cita del BCE (Fase 8); (3) los precios de Alpha Vantage no están ajustados por dividendos (Fase 4).
 
 ### Qué ha aprendido Alberto
 - Qué es una API REST, cómo se lee una respuesta JSON y qué significan los códigos HTTP (2xx/4xx/5xx, 429).
@@ -144,7 +144,7 @@ Plantilla para cada fase (se rellena al trabajarla):
 - boto3 no podía leer las credenciales de `aws login` (`MissingDependencyException ... botocore[crt]`). Se instaló `botocore[crt]` en `dev` (D-019).
 - Un segundo `terraform apply "tfplan"` por error → `Saved plan is stale`: Terraform se negó y no cambió nada.
 - Barras invertidas de Windows rompiendo scripts (`\U` en `sed` y en textos de Python): se usan *raw strings* o ficheros de script.
-- **Riesgos abiertos de esta fase:** (1) comprobar en la Fase 3 qué versiones de pandas y pyarrow trae la capa *AWS SDK for pandas* (en local: pandas 3.0.6; el código pide `>=2.2`); (2) el precio cripto es una foto a la hora de la ingesta, no un cierre (documentarlo en el modelo de la Fase 4); (3) las rentabilidades de la Fase 4 deben usar la sesión anterior del mismo activo (ver la nota del paso 2.4).
+- **Riesgos abiertos de esta fase:** (1) ~~comprobar las versiones de la capa *AWS SDK for pandas*~~ → pandas 3.0.5 y pyarrow 24.0.0, funciona (paso 3.7); (2) el precio cripto es una foto a la hora de la ingesta, no un cierre (documentarlo en el modelo de la Fase 4); (3) las rentabilidades de la Fase 4 deben usar la sesión anterior del mismo activo (ver la nota del paso 2.4).
 
 ### Qué ha aprendido Alberto
 - Cuánto cuesta S3 y cómo se calcula (GB-mes, PUT/GET, transferencia), consultando la fuente oficial antes de crear nada.
@@ -165,13 +165,54 @@ Plantilla para cada fase (se rellena al trabajarla):
 
 ## Fase 3 · Automatización con Lambda y EventBridge
 **Criterios de aceptación:**
-- [ ] Una ejecución manual de la Lambda escribe datos nuevos en S3
-- [ ] Los logs se ven en CloudWatch
+- [x] Una ejecución manual de la Lambda escribe datos nuevos en S3 — paso 3.7
+- [x] Los logs se ven en CloudWatch — `aws logs tail` (paso 3.7)
 - [ ] La ejecución programada del día siguiente ha funcionado
-- [ ] La política de IAM no usa `*` en recursos
+- [x] La política de IAM no usa `*` en recursos — `get-role-policy` y simulador (paso 3.6)
 
 ### Pasos completados
+- Plan aprobado por Alberto (2026-10-20): capa gestionada *AWS SDK for pandas*; zip con un script de Python (sin el proveedor `archive`); sin SQS, con destino *on-failure* de Lambda hacia el tema SNS; `"Resource": "*"` prohibido, pero se admiten rutas acotadas al bucket (`<bucket>/bronze/*`); tema SNS leído con `data` e importado en la Fase 5; ingesta a las 06:00 UTC y transformación a las 06:30 UTC.
+- Paso 3.1 — Lectura de documentación y precios oficiales, sin cambios en AWS.
+  - **SCP y RCP** (docs *Managed policies for your organization*): el plan gratuito permite `lambda:*`, `scheduler:*`, `logs:*`, `cloudwatch:*`, `ssm:*`, `kms:*`, `iam:*`, `sns:*`, `s3:*`, `events:*`, `glue:*` y `athena:*`. La SCP `ProtectManagedRoles` solo protege `role/managed/*`, así que nuestros roles se pueden crear. Las RCP solo bloquean a principales de fuera de la organización. Si se configurara un *spend limit*, cerca del límite se denegaría `lambda:InvokeFunction`.
+  - **Capa:** `aws lambda get-layer-version-by-arn` → `AWS SDK for pandas Lambda Layer - 3.17.1 (Python 3.13)`, creada el 2026-08-03. arm64: `arn:aws:lambda:eu-north-1:336392948345:layer:AWSSDKPandas-Python313-Arm64:16` (55,7 MB comprimida). x86_64: `...:AWSSDKPandas-Python313:16` (59,5 MB). Según `uv.lock` y el script de construcción de la 3.17.1, trae **pandas 3.0.1** (en local, 3.0.6) y pyarrow **24.0.0** compilado (en local, 26.0.0), ambas compatibles con `pandas>=2.2` y `pyarrow>=18`. **No trae `requests` ni `PyYAML`**: van en nuestro zip. Las versiones reales se registrarán en el log al arrancar la Lambda (paso 3.7).
+  - **Precios en `eu-north-1`** (AWS Price List API y páginas oficiales):
+    - Lambda: 0,20 USD por millón de peticiones; 0,0000133334 USD/GB-s en arm64 frente a 0,0000166667 en x86 (−20 %); capa gratuita de 1 M peticiones y 400.000 GB-s al mes; 512 MB de `/tmp` sin coste.
+    - EventBridge Scheduler: 14 M invocaciones al mes gratis; después, 1,09 USD por millón.
+    - CloudWatch: logs a 0,54 USD/GB ingerido y 0,028 USD/GB-mes; alarmas a 0,10 USD cada una al mes. Capa gratuita: 5 GB de logs y 10 métricas de alarma.
+    - SSM Parameter Store estándar: sin coste.
+    - KMS con la clave gestionada por AWS: sin cuota mensual; 0,03 USD por cada 10.000 peticiones, con 20.000 gratis al mes.
+  - **Estimación:** unos 600 GB-s y 60 invocaciones al mes → 0 USD con la capa gratuita. Sin ella, menos de 0,25 USD/mes (lo que más pesa son las alarmas).
+- Paso 3.2 — Clave Demo de CoinGecko creada por Alberto (plan Demo gratuito, sin tarjeta, casilla de marketing sin marcar) y guardada solo en `.env` como `COINGECKO_API_KEY`. Evidencia: `/ping` con una clave inventada → `Unauthorized` (401) · con la clave real → `(V3) To the Moon!` · `python -m marketpulse.ingest` → CoinGecko `200 en 396 ms` sin el aviso "sin clave", `Resumen: 3/3 fuentes correctas`, y la clave no aparece en los logs. **Riesgo de la Fase 1 resuelto.**
+- Paso 3.3 — Handlers de Lambda (solo código local, sin AWS):
+  - `ingest/handler.py`: lee las claves de SSM, ejecuta `run_all` en un `TemporaryDirectory` de `/tmp`, sube bronze **aunque falle una fuente** y después lanza `JobFailedError`.
+  - `transform/handler.py`: descarga todo bronze, ejecuta `run_transform`; si la calidad falla, lanza un error y no sube nada; si va bien, sube silver y gold. Deja en el log las versiones de pandas y pyarrow.
+  - Módulos nuevos: `common/ssm.py` (`get_parameters`: una sola llamada, `WithDecryption=True`, error con nombres y nunca con valores), `common/lambda_runtime.py` (`JobFailedError`, `configure_logging`, `require_env`) y `common/s3.py` (`download_layer`, con defensa contra *path traversal*).
+  - Tests: `FakeS3` se mueve a `tests/fakes.py`, junto con `FakeSSM`.
+  - Evidencia: `pytest -q` → `121 passed` (13 nuevos) · `ruff check .` → `All checks passed!` · `ruff format --check .` → `48 files already formatted` · prueba de integración local con el bronze real y un S3 falso → `Calidad: 59 comprobaciones, 0 fallan`, `{'bronze_downloaded': 5, 'uploaded': 4, 'unchanged': 0}`.
+- Paso 3.4 — `scripts/build_lambda.py` genera `build/lambda.zip` para arm64 y Python 3.13 (D-020). Contenido: `marketpulse/`, `config/watchlist.yaml` y certifi, charset-normalizer, idna, python-dotenv, PyYAML, requests y urllib3, todas fijadas con `==` a la versión del venv. Evidencia: `python scripts/build_lambda.py` → `192 ficheros | 1.48 MB comprimido | 5.21 MB descomprimido`. Los únicos binarios son `*.cpython-313-aarch64-linux-gnu.so` (charset_normalizer y yaml). Sin pandas, pyarrow ni boto3, y sin `.env`, `data/` ni `tfstate`. Dos construcciones seguidas dan el mismo `SHA-256 (base64): nfFkGQVX...ERYQ=`. `pytest -q` → `121 passed`.
+  - Problema: al principio los hashes cambiaban entre construcciones. Los `RECORD` de pip incluían la huella de `.pyc` y de lanzadores `.exe` con la hora dentro → se añadió `--no-compile` y se excluyeron los `RECORD`.
+- Paso 3.5 — `infra/ssm.tf`: dos parámetros `SecureString` (`for_each`, nivel Standard, `alias/aws/ssm`) con valor de relleno e `ignore_changes = [value]`, y el *output* `api_key_parameter_names` (D-021). `terraform apply` ejecutado por Alberto → `2 added`. Las claves reales se escribieron con `aws ssm put-parameter --overwrite` desde variables de PowerShell → `Version: 2`.
+  - Evidencia: `describe-parameters` → 2 filas `SecureString`, `alias/aws/ssm`, versión 2 · longitud del valor descifrado → 27 y 16 (igual que en `.env` sin espacios) · `Select-String` de las claves en `terraform.tfstate` → sin resultados (**el secreto no está en el *state***) · `terraform plan` → `No changes` · política de `aws/ssm` → `kms:Decrypt` permitido vía `kms:ViaService = ssm.eu-north-1.amazonaws.com`, así que la Lambda no necesita `kms:Decrypt`.
+  - Hallazgo: en `.env` las tres líneas tienen un espacio después del `=`. No rompe nada, porque `python-dotenv` y `get_secret()` recortan, y a SSM se subió el valor recortado.
+- Paso 3.6 — `infra/logs.tf` (`locals.lambda_functions`; grupos `/aws/lambda/marketpulse-{ingest,transform}` con retención de 14 días) e `infra/iam.tf` (un rol por función con política de confianza solo para `lambda.amazonaws.com` y políticas en línea sin `"Resource": "*"`: logs solo de su grupo, `ssm:GetParameters` solo en los 2 ARN y solo para la ingesta, `s3:ListBucket` con condición `s3:prefix`, ingesta `PutObject` solo en `bronze/*`, transformación `GetObject` en `bronze/*` y `PutObject` en `silver/*` y `gold/*`, nadie con `DeleteObject`). `terraform apply` ejecutado por Alberto → `6 added`.
+  - Evidencia: `describe-log-groups` → 2 grupos con retención 14 · `get-role-policy` → 4 sentencias, todas con ARN concretos · `simulate-principal-policy` con `aws:RequestedRegion=eu-north-1`: ingesta `PutObject` bronze **allowed** y gold **implicitDeny**; transformación `GetObject` bronze **allowed**, `PutObject` y `DeleteObject` bronze **implicitDeny**; `ssm:GetParameters` **allowed** para la ingesta e **implicitDeny** para la transformación. **Criterio 4 cumplido.**
+  - Problema: el simulador daba `explicitDeny` en todo, con `AllowedByOrganizations: false`. Causa: sin `--context-entries` no envía `aws:RequestedRegion`, y la SCP de restricción de región (`RegionFloor`) deniega cuando falta esa clave. Al pasar la región, los resultados son los esperados. Las peticiones reales sí llevan la región, así que no afecta a las Lambdas. Además: con varios `--resource-arns` el resultado de cada recurso va en `ResourceSpecificResults` (hay que simular uno a uno), y Git Bash convierte `/marketpulse/...` en una ruta de Windows (`MSYS_NO_PATHCONV=1`).
+- Paso 3.7 — `infra/lambda.tf`: dos `aws_lambda_function` con `for_each`, el mismo zip y `source_code_hash`, `python3.13`, arm64 y `logging_config` hacia su grupo de logs. La ingesta tiene 256 MB, 300 s, sin capa y los nombres de SSM. La transformación tiene 1024 MB, 120 s y la capa AWS SDK for pandas. *Output* `lambda_function_names`. `terraform apply` ejecutado por Alberto → `2 added`.
+  - Evidencia (invocación manual con `aws lambda invoke --cli-read-timeout 600`): ingesta → `StatusCode 200`, `{"sources_ok": ["alphavantage", "coingecko", "frankfurter"], "failed": {}, "uploaded": 5}`; transformación → `200`, `{"bronze_downloaded": 5, "uploaded": 4}`. `aws logs tail`: ingesta con 3 APIs en `200` y `apikey: '***'`, `REPORT Duration 7014 ms, Billed 7391 ms, Max Memory 114/256 MB, Init 376 ms`; transformación con `Versiones: pandas 3.0.5, pyarrow 24.0.0`, `Calidad: 59 comprobaciones, 0 fallan`, `REPORT Duration 1363 ms, Billed 4160 ms, Max Memory 237/1024 MB, Init 2796 ms`. `aws s3 ls`: `coingecko.json` 19:50:29 y `gold/.../part-0.parquet` 19:50:57 (hora de España), después de la subida de la Fase 2. **Criterios 1 y 2 cumplidos.**
+  - Observaciones: (1) la capa trae **pandas 3.0.5** (no 3.0.1 como deducía el `uv.lock`), compatible con `>=2.2`, y los datos pasan la calidad → **riesgo de la Fase 2 resuelto**. (2) `Billed Duration` = duración + `Init Duration`: AWS cobra también el arranque en frío, y la capa de pandas añade unos 2,8 s. Coste aproximado por día: 0,25 GB × 7,4 s + 1 GB × 4,2 s ≈ 6 GB-s → unos 180 GB-s al mes, frente a 400.000 gratis. (3) `Found credentials in environment variables`: Lambda inyecta las credenciales temporales del rol como variables de entorno y boto3 las encuentra solo. (4) La transformación usa 237 de 1024 MB; se podría bajar memoria, pero también bajaría la CPU (idea para más adelante, sin cambiarlo ahora).
+- Paso 3.8 — `infra/scheduler.tf`:
+  - Rol `marketpulse-scheduler`: confianza solo para `scheduler.amazonaws.com` con `aws:SourceAccount` y `lambda:InvokeFunction` solo sobre los 2 ARN.
+  - Dos `aws_scheduler_schedule`: `cron(0 6 * * ? *)` y `cron(30 6 * * ? *)` en UTC, `flexible_time_window OFF`, `retry_policy` de 3 intentos y 1 h, sin DLQ (no hay SQS).
+  - En `lambda.tf`: `data "aws_sns_topic" "alertas"` (solo lectura) y `aws_lambda_function_event_invoke_config` con 2 reintentos, 1 h y `on_failure` hacia el tema SNS.
+  - En `iam.tf`: sentencia `AvisarDeFallos` (`sns:Publish` solo sobre ese tema) en los dos roles.
+  - `terraform apply` ejecutado por Alberto → `6 added, 2 changed` (sin errores de consistencia eventual).
+  - Evidencia: `list-schedules` → 2 `ENABLED` · `get-schedule` → `cron(0 6 * * ? *)`, `UTC`, reintentos 3/3600 · `get-function-event-invoke-config` → `MaximumRetryAttempts 2`, `OnFailure` → `marketpulse-alertas` · `aws lambda invoke --invocation-type Event` → **`StatusCode 202`** · en el log, una ejecución a las 17:55:13 UTC con `Calidad: 59 comprobaciones, 0 fallan`, `uploaded 0, unchanged 4` (nada había cambiado: idempotencia y Parquet determinista) y `REPORT Duration 554 ms, Billed 555 ms`, **sin `Init Duration`** (arranque en caliente, frente a los 4.160 ms facturados en frío).
+  - Nota: el primer `aws logs tail` salió vacío porque se lanzó justo después del `invoke` asíncrono. El evento tarda unos segundos en ejecutarse y en llegar a CloudWatch.
+- Paso 3.9 — `infra/monitoring.tf`: una alarma por Lambda (`marketpulse-{ingest,transform}-errores`) sobre `AWS/Lambda` `Errors`, `Sum` ≥ 1 en 1 periodo de 300 s, `treat_missing_data = notBreaching` y `alarm_actions` → tema `marketpulse-alertas` (su política por defecto ya permite publicar a los servicios de la cuenta; comprobado con `get-topic-attributes`). `terraform apply` ejecutado por Alberto → `2 added`.
+  - Evidencia: `describe-alarms` → 2 alarmas con 1 acción cada una · simulacro con `aws cloudwatch set-alarm-state --state-value ALARM` en `marketpulse-transform-errores` → historial `INSUFFICIENT_DATA to ALARM` (19:59 hora de España) y **email recibido por Alberto**.
+  - No realizado (decisión de Alberto): la prueba de fallo real (bucket inexistente + invocación asíncrona + corrección de la deriva). El destino *on-failure* y los reintentos ante una excepción real **no se han visto funcionar**: solo están comprobados en su configuración (`get-function-event-invoke-config`).
 ### Problemas encontrados
+- **Riesgo para la Fase 6 (encontrado en el paso 3.1):** la SCP del plan gratuito (y también la del plan de pago) incluye `DenyIAMRestrictedActions` con `iam:*Provider*`. Eso deniega `iam:CreateOpenIDConnectProvider`, así que no se podrá crear el proveedor OIDC de GitHub tal y como está planteado. No se resuelve ahora (no se adelantan fases), pero habrá que buscar alternativas al llegar a la Fase 6.
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista
 ### Pregunta típica de entrevista
