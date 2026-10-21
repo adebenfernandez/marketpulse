@@ -96,6 +96,21 @@ def check_gold(df: pd.DataFrame, watchlist: Watchlist, today: date) -> list[Chec
     return results
 
 
+def check_dim_asset(dim: pd.DataFrame, facts: pd.DataFrame) -> list[CheckResult]:
+    """La dimensión de activos, y que los hechos solo usen activos que existen en ella."""
+    schema, key = GOLD_TABLES["dim_asset"]
+    t = "dim_asset"
+    results = checks.not_null(dim, t, schema.names)
+    results.append(checks.unique(dim, t, key))
+    results.append(checks.accepted_values(dim, t, "asset_class", set(MAX_AGE_DAYS)))
+    # Integridad referencial del modelo en estrella: todo `asset` de la tabla de hechos debe
+    # existir en la dimensión. Si no, al cruzarlas (JOIN) ese activo desaparecería sin avisar
+    results.append(
+        checks.accepted_values(facts, "daily_prices->dim_asset", "asset", set(dim["asset"]))
+    )
+    return results
+
+
 def has_errors(results: list[CheckResult]) -> bool:
     return any(not r.passed and r.severity == ERROR for r in results)
 

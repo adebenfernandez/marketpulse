@@ -63,15 +63,19 @@ def test_stock_rows_con_precio_no_numerico_falla():
 
 
 @pytest.mark.parametrize(
-    ("ts", "dia_utc"),
+    ("instante", "dia_de_mercado"),
     [
-        (1792454399, date(2026, 10, 19)),  # 23:59:59 UTC del 19 (01:59 del 20 en España)
-        (1792454400, date(2026, 10, 20)),  # 00:00:00 UTC del 20
+        # Regla del paso 4.8: un precio cripto es del día cuyo cierre (00:00 UTC) tiene más cerca
+        (datetime(2026, 10, 20, 0, 0, tzinfo=UTC), date(2026, 10, 19)),  # cierre del 19
+        (datetime(2026, 10, 21, 6, 0, tzinfo=UTC), date(2026, 10, 20)),  # foto diaria: el 20
+        (datetime(2026, 10, 20, 17, 50, tzinfo=UTC), date(2026, 10, 20)),  # manual de tarde: el 20
+        (datetime(2026, 10, 19, 23, 59, 59, tzinfo=UTC), date(2026, 10, 19)),
     ],
 )
-def test_crypto_rows_usa_el_dia_utc(ts, dia_utc):
+def test_crypto_rows_fecha_del_cierre_mas_cercano(instante, dia_de_mercado):
+    ts = int(instante.timestamp())
     (row,) = silver.crypto_rows(cg_payload(ts, 82000.0), D20, {"bitcoin": "BTC"})
-    assert row["date"] == dia_utc
+    assert row["date"] == dia_de_mercado
     assert row["price_at"] == datetime.fromtimestamp(ts, tz=UTC)
     assert row["price_at"].tzinfo is UTC  # instante con zona horaria explícita
     assert row["symbol"] == "BTC"
@@ -187,3 +191,51 @@ def test_una_fuente_sin_datos_no_crea_tabla(tmp_path):
     write_bronze("frankfurter", fx, dt=D20, root=tmp_path)
     written = silver.build_silver(WATCHLIST, root=tmp_path)
     assert set(written) == {"fx_rates"}
+
+
+# --- Carga histórica (Fase 4) ------------------------------------------------------------
+
+DAY_MS = 86_400_000
+T0 = 1792368000000  # 2026-10-19 00:00 UTC
+
+
+def chart(points: list[tuple[int, float]]) -> dict:
+    return {
+        "prices": [[ms, p] for ms, p in points],
+        "market_caps": [[ms, 1e12] for ms, _ in points],
+        "total_volumes": [[ms, 3e10] for ms, _ in points],
+    }
+
+
+def test_historico_cripto_solo_medianoche_y_variacion_calculada():
+    # 19/10 100 · 20/10 110 · 21/10 a las 10:24 (el "ahora" del final de la serie)
+    payload = chart([(T0, 100.0), (T0 + DAY_MS, 110.0), (T0 + 2 * DAY_MS + 37_440_000, 120.0)])
+    rows = silver.crypto_history_rows(payload, "bitcoin", "usd", D21, {"bitcoin": "BTC"})
+    assert len(rows) == 1  # el 19 no tiene día anterior y el "ahora" no es de medianoche
+    row = rows[0]
+    # El punto de las 00:00 del 20 es el CIERRE del 19 (regla del paso 4.8)
+    assert (row["date"], row["symbol"], row["price"]) == (date(2026, 10, 19), "BTC", 110.0)
+    assert row["change_24h_pct"] == pytest.approx(10.0)
+    assert row["price_at"] == datetime(2026, 10, 20, tzinfo=UTC)
+
+
+def test_la_foto_diaria_gana_al_historico_del_mismo_dia(tmp_path):
+    write_bronze(
+        "coingecko_backfill",
+        chart([(T0, 100.0), (T0 + DAY_MS, 110.0)]),
+        dt=D21,
+        name="bitcoin",
+        root=tmp_path,
+    )
+    foto_0600 = int(datetime(2026, 10, 20, 6, tzinfo=UTC).timestamp())
+    write_bronze("coingecko", cg_payload(foto_0600, 111.0), dt=D20, root=tmp_path)
+    df = silver.build_crypto_prices(tmp_path, WATCHLIST)
+    assert len(df) == 1
+    assert df.iloc[0]["price"] == 111.0  # 06:00 es posterior a 00:00
+
+
+def test_fx_lee_tambien_la_carga_historica(tmp_path):
+    fila = {"date": "2025-10-20", "base": "EUR", "quote": "USD", "rate": 1.1655}
+    write_bronze("frankfurter_backfill", [fila], dt=D21, name="frankfurter", root=tmp_path)
+    df = silver.build_fx_rates(tmp_path)
+    assert df["date"].tolist() == [date(2025, 10, 20)]

@@ -18,18 +18,18 @@ Así Terraform solo vuelve a desplegar la Lambda cuando el código o una depende
 import base64
 import hashlib
 import importlib.metadata as metadata
+import os
 import re
-import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
-DEPS_DIR = BUILD / "deps"
-ZIP_PATH = BUILD / "lambda.zip"
+ZIP_PATH = BUILD / "lambda.zip"  # solo el zip final vive en el proyecto (y en OneDrive)
 
 PYTHON_VERSION = "3.13"
 # Etiquetas de "wheel" para Linux arm64. Lambda python3.13 usa Amazon Linux 2023 (glibc 2.34),
@@ -92,9 +92,8 @@ def pinned_closure(names: list[str]) -> dict[str, str]:
     return pins
 
 
-def install_dependencies(pins: dict[str, str]) -> None:
+def install_dependencies(pins: dict[str, str], target: Path) -> None:
     """pip descarga los wheels de Linux arm64 de PyPI y los instala en build/deps/."""
-    shutil.rmtree(DEPS_DIR, ignore_errors=True)  # carpeta generada: se rehace siempre de cero
     platform_args = [arg for p in PLATFORMS for arg in ("--platform", p)]
     subprocess.run(
         [
@@ -103,7 +102,7 @@ def install_dependencies(pins: dict[str, str]) -> None:
             "pip",
             "install",
             "--target",
-            str(DEPS_DIR),  # instalar en una carpeta, no en el venv
+            str(target),  # instalar en una carpeta, no en el venv
             *platform_args,  # para Linux arm64, no para este Windows
             "--python-version",
             PYTHON_VERSION,
@@ -121,7 +120,7 @@ def install_dependencies(pins: dict[str, str]) -> None:
     )
 
 
-def files_to_package() -> list[tuple[Path, str]]:
+def files_to_package(deps_dir: Path) -> list[tuple[Path, str]]:
     """(fichero local, ruta dentro del zip), en orden alfabético."""
     entries: list[tuple[Path, str]] = []
 
@@ -138,15 +137,14 @@ def files_to_package() -> list[tuple[Path, str]]:
                 continue
             entries.append((path, f"{prefix}{rel.as_posix()}"))
 
-    add_tree(DEPS_DIR, "", skip_top={"bin"})  # bin/: ejecutables de consola que no usamos
+    add_tree(deps_dir, "", skip_top={"bin"})  # bin/: ejecutables de consola que no usamos
     add_tree(ROOT / "src" / "marketpulse", "marketpulse/")
     entries.append((ROOT / "config" / "watchlist.yaml", "config/watchlist.yaml"))
     return sorted(entries, key=lambda e: e[1])
 
 
-def write_zip(entries: list[tuple[Path, str]]) -> None:
-    ZIP_PATH.unlink(missing_ok=True)
-    with zipfile.ZipFile(ZIP_PATH, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+def write_zip(entries: list[tuple[Path, str]], zip_path: Path) -> None:
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for path, arcname in entries:
             info = zipfile.ZipInfo(arcname, date_time=FIXED_DATE)  # fecha fija: zip determinista
             info.external_attr = 0o644 << 16  # permisos Unix rw-r--r--: Lambda debe poder leerlo
@@ -154,9 +152,9 @@ def write_zip(entries: list[tuple[Path, str]]) -> None:
             zf.writestr(info, path.read_bytes())
 
 
-def verify_zip() -> dict:
+def verify_zip(zip_path: Path) -> dict:
     """Comprobaciones antes de dar el zip por bueno. Lanza AssertionError si algo no cuadra."""
-    with zipfile.ZipFile(ZIP_PATH) as zf:
+    with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
         unzipped = sum(i.file_size for i in zf.infolist())
     required = [
@@ -179,7 +177,7 @@ def verify_zip() -> dict:
     wrong = [n for n in binaries if not n.endswith(".so") or "x86_64" in n or "win" in n]
     assert not wrong, f"Binarios que no son de Linux arm64: {wrong}"
 
-    zip_mb = ZIP_PATH.stat().st_size / 1e6
+    zip_mb = zip_path.stat().st_size / 1e6
     assert zip_mb < MAX_ZIP_MB, f"Zip de {zip_mb:.1f} MB: supera {MAX_ZIP_MB} MB"
     assert unzipped / 1e6 < MAX_UNZIPPED_MB
     return {"files": len(names), "zip_mb": zip_mb, "unzipped_mb": unzipped / 1e6, "so": binaries}
@@ -192,9 +190,19 @@ def main() -> int:
     for name, version in sorted(pins.items()):
         print(f"  {name}=={version}")
 
-    install_dependencies(pins)
-    write_zip(files_to_package())
-    info = verify_zip()
+    # Todo el trabajo intermedio va a una carpeta temporal del sistema, FUERA de OneDrive: una
+    # carpeta build/deps dentro del proyecto se quedó bloqueada por la sincronización ("Acceso
+    # denegado") y pip no pudo instalar nada (paso 4.2). Cada construcción empieza de cero
+    with tempfile.TemporaryDirectory(prefix="marketpulse-build-") as tmp:
+        deps_dir, tmp_zip = Path(tmp) / "deps", Path(tmp) / "lambda.zip"
+        install_dependencies(pins, deps_dir)
+        write_zip(files_to_package(deps_dir), tmp_zip)
+        info = verify_zip(
+            tmp_zip
+        )  # si falla, se lanza AssertionError y el zip anterior sigue intacto
+        BUILD.mkdir(exist_ok=True)
+        # Solo un zip YA VERIFICADO sustituye al anterior (os.replace: mismo disco, atómico)
+        os.replace(tmp_zip, ZIP_PATH)
 
     digest = hashlib.sha256(ZIP_PATH.read_bytes()).digest()
     print(

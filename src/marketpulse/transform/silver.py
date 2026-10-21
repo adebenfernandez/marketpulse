@@ -10,13 +10,16 @@ Qué hace la capa silver con cada fuente:
 """
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 
 import pandas as pd
 
 from marketpulse.common.config import Watchlist
 from marketpulse.common.storage import DEFAULT_DATA_ROOT
+from marketpulse.ingest.backfill import CRYPTO_SOURCE as CRYPTO_BACKFILL
+from marketpulse.ingest.backfill import FX_SOURCE as FX_BACKFILL
 from marketpulse.transform.bronze import iter_bronze
 from marketpulse.transform.schemas import SILVER_TABLES
 from marketpulse.transform.tables import write_table
@@ -41,6 +44,22 @@ def fx_rows(payload: list[dict], ingest_date: date) -> list[dict]:
     ]
 
 
+def crypto_close_date(price_at: datetime) -> date:
+    """Día de mercado de un precio cripto: el del cierre (00:00 UTC) que tiene MÁS CERCA.
+
+    Cripto no cierra nunca, pero la convención es tomar el precio de las 00:00 UTC como CIERRE del
+    día que termina: el punto de las 00:00 del 16 es el cierre del 15. Así una fecha cripto
+    significa lo mismo que una de bolsa (cierre de ese día) y se pueden comparar (paso 4.8: con la
+    fecha del propio instante, la correlación BTC-SPY salía -0,03; alineada, 0,33).
+
+    (price_at - 12 h).date() reparte cada instante al cierre más próximo:
+      - 00:00 UTC del 16 (histórico)      -> 15
+      - 06:00 UTC del 21 (foto diaria)    -> 20 (6 h después del cierre del 20)
+      - 17:50 UTC del 20 (ejecución manual) -> 20 (más cerca del cierre del 20 que del 19)
+    """
+    return (price_at.astimezone(UTC) - timedelta(hours=12)).date()
+
+
 def crypto_rows(payload: dict, ingest_date: date, symbols: dict[str, str]) -> list[dict]:
     """CoinGecko viene como {id: {usd: ..., usd_market_cap: ...}}: lo "aplanamos" a filas.
 
@@ -54,7 +73,7 @@ def crypto_rows(payload: dict, ingest_date: date, symbols: dict[str, str]) -> li
         price_at = datetime.fromtimestamp(values["last_updated_at"], tz=UTC)
         rows.append(
             {
-                "date": price_at.date(),  # día UTC del precio
+                "date": crypto_close_date(price_at),  # día de mercado (ver crypto_close_date)
                 "coin_id": coin_id,
                 "symbol": symbols.get(coin_id),  # None si ya no está en la watchlist
                 "vs_currency": vs,
@@ -62,6 +81,43 @@ def crypto_rows(payload: dict, ingest_date: date, symbols: dict[str, str]) -> li
                 "market_cap": float(values[f"{vs}_market_cap"]),
                 "volume_24h": float(values[f"{vs}_24h_vol"]),
                 "change_24h_pct": float(values[f"{vs}_24h_change"]),
+                "price_at": price_at,
+                "ingest_date": ingest_date,
+            }
+        )
+    return rows
+
+
+def crypto_history_rows(
+    payload: dict, coin_id: str, vs_currency: str, ingest_date: date, symbols: dict[str, str]
+) -> list[dict]:
+    """Histórico de CoinGecko (/market_chart, carga histórica): series [ms, valor] -> filas.
+
+    - Solo se quedan los puntos de las 00:00 UTC exactas. El último punto de la serie es "ahora"
+      (p. ej. 10:24): no es un precio diario comparable y se descarta.
+    - `change_24h_pct` no viene en el histórico: se calcula con el punto del día anterior (que es,
+      justamente, la variación en 24 h a las 00:00). Por eso el primer punto se descarta.
+    - Si un día tiene también foto de la ingesta diaria (~06:00 UTC), al deduplicar gana esa,
+      porque su `price_at` es posterior (ver build_crypto_prices).
+    """
+    day_ms = 24 * 60 * 60 * 1000
+    caps = dict(map(tuple, payload["market_caps"]))  # {ms: capitalización}
+    volumes = dict(map(tuple, payload["total_volumes"]))
+    daily = [(ms, price) for ms, price in payload["prices"] if ms % day_ms == 0]  # solo 00:00
+
+    rows = []
+    for (_, previous), (ms, price) in pairwise(daily):  # (ayer, hoy), (hoy, mañana)...
+        price_at = datetime.fromtimestamp(ms / 1000, tz=UTC)
+        rows.append(
+            {
+                "date": crypto_close_date(price_at),  # 00:00 del día D+1 = cierre de D
+                "coin_id": coin_id,
+                "symbol": symbols.get(coin_id),
+                "vs_currency": vs_currency,
+                "price": float(price),
+                "market_cap": float(caps[ms]),
+                "volume_24h": float(volumes[ms]),
+                "change_24h_pct": (price / previous - 1) * 100,
                 "price_at": price_at,
                 "ingest_date": ingest_date,
             }
@@ -109,8 +165,12 @@ def deduplicate(df: pd.DataFrame, key: list[str], order_by: list[str]) -> pd.Dat
 
 
 def build_fx_rates(root: Path) -> pd.DataFrame:
+    # La carga histórica tiene la misma forma que la diaria: el mismo lector sirve para las dos
     rows = [
-        row for f in iter_bronze("frankfurter", root) for row in fx_rows(f.payload, f.ingest_date)
+        row
+        for source in ("frankfurter", FX_BACKFILL)
+        for f in iter_bronze(source, root)
+        for row in fx_rows(f.payload, f.ingest_date)
     ]
     df = pd.DataFrame(rows, columns=SILVER_TABLES["fx_rates"][0].names)
     return deduplicate(df, SILVER_TABLES["fx_rates"][1], ["ingest_date"])
@@ -118,13 +178,19 @@ def build_fx_rates(root: Path) -> pd.DataFrame:
 
 def build_crypto_prices(root: Path, watchlist: Watchlist) -> pd.DataFrame:
     symbols = {a.coingecko_id: a.symbol for a in watchlist.crypto.assets}
+    vs = watchlist.crypto.vs_currency
     rows = [
         row
         for f in iter_bronze("coingecko", root)
         for row in crypto_rows(f.payload, f.ingest_date, symbols)
+    ] + [
+        row  # carga histórica: un fichero por moneda, con el id de CoinGecko como nombre
+        for f in iter_bronze(CRYPTO_BACKFILL, root)
+        for row in crypto_history_rows(f.payload, f.name, vs, f.ingest_date, symbols)
     ]
     df = pd.DataFrame(rows, columns=SILVER_TABLES["crypto_prices"][0].names)
-    # Si hay dos precios del mismo día (dos ejecuciones), nos quedamos con el más tardío
+    # Si hay dos precios del mismo día (dos ejecuciones, o histórico 00:00 + foto diaria ~06:00),
+    # nos quedamos con el más tardío
     return deduplicate(df, SILVER_TABLES["crypto_prices"][1], ["price_at", "ingest_date"])
 
 

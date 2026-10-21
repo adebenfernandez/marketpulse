@@ -362,3 +362,85 @@ Fuente: [Managed policies for your organization](https://docs.aws.amazon.com/acc
 **Comprobado:**
 - La política de la clave `aws/ssm` permite `kms:Decrypt` a cualquier principal de la cuenta, pero solo a través de SSM (`kms:CallerAccount` + `kms:ViaService = ssm.eu-north-1.amazonaws.com`).
 - Por lo tanto, el rol de la Lambda **no necesita `kms:Decrypt`**: le basta con `ssm:GetParameters` sobre los dos ARN.
+
+---
+
+## D-022 · Carga histórica (*backfill*) única en fuentes bronze propias
+**Fecha:** 2026-10-21 · **Fase:** 4
+
+**Contexto:** con solo la ingesta diaria, cripto tenía 2 días de historia y divisas 1. Las vistas de la Fase 4 (volatilidad a 30 días, correlación) no podían dar resultados coherentes hasta pasados 1 o 2 meses.
+
+**Opciones:** esperar a acumular datos · validar las vistas solo con bolsa · carga histórica única.
+
+**Decisión (aprobada por Alberto):** `python -m marketpulse.ingest.backfill`, ejecutado a mano.
+- **Frankfurter:** `/v2/rates` con `from`/`to` (un año, BCE) en una sola petición. La respuesta tiene la misma forma que la diaria: silver la lee con el mismo `fx_rows` y la validación se comparte (`frankfurter.validate_rates`).
+- **CoinGecko:** `/coins/{id}/market_chart?days=365&interval=daily`, el máximo del plan Demo, con un fichero por moneda.
+- **Fuentes bronze separadas**, `source=frankfurter_backfill` y `source=coingecko_backfill`: se ve de dónde viene cada dato, se puede rehacer sin tocar la ingesta diaria y es idempotente (mismo nombre → sobrescribe).
+- **Subida a S3 solo de esas dos carpetas.** Subir todo `data/` pisaría en S3 bronze, silver y gold con versiones locales más antiguas.
+- **Alpha Vantage queda fuera:** más de 100 días (`outputsize=full`) es de pago.
+
+**Reglas en silver (`crypto_history_rows`):**
+- Solo se usan los puntos de las **00:00 UTC exactas**. El último punto de la serie es "ahora" y se descarta.
+- `change_24h_pct` se calcula con el punto del día anterior (el primer punto se descarta).
+- Si un día tiene histórico (00:00) y foto diaria (~06:00), **gana la foto diaria** por ser más tardía. Es el deduplicado de siempre, sin lógica especial.
+
+**Limitación aceptada:** en cripto, los días anteriores al 2026-10-20 son precios de las 00:00 UTC y los posteriores, de hacia las 06:00 UTC. Las dos son fotos (`price_type = snapshot`), pero de horas distintas. Afecta poco a las rentabilidades diarias, y se documentará en el modelo de datos.
+
+**Ensayo local (sin AWS):** fx 510 filas (2025-10-21 → 2026-10-20), cripto 1.092 (2025-10-23 → 2026-10-21), `Calidad: 59 comprobaciones, 0 fallan`.
+
+---
+
+## D-023 · Modelo en estrella: dimensiones y hechos como vistas sobre gold, desplegadas con `terraform_data`
+**Fecha:** 2026-10-21 · **Fase:** 4
+
+**Contexto:** el informe pide `dim_asset`, `dim_date` y `fact_daily_price`, con "todo el DDL en `sql/`" y desplegado con Terraform. El proveedor de AWS no tiene un recurso de "vista de Athena".
+
+**Decisión:**
+- **`dim_asset`** es una **tabla física** en gold (`gold/dim_asset/part-0.parquet`, sin particiones), que **escribe la Lambda de transformación a partir de `watchlist.yaml`**. Tiene 8 filas: `asset`, `asset_name`, `asset_class`, `currency`, `price_type`, `source` y `annualization_days` (365 cripto, 252 bolsa y divisas). La moneda, el tipo de precio y la fuente salen de las **mismas constantes** (`gold.PRICE_TYPE`, `gold.SOURCE`) que la tabla de hechos.
+- **Integridad referencial como regla de calidad:** todo `asset` de `daily_prices` debe existir en `dim_asset` (`check_dim_asset`). Si no, la transformación no publica nada.
+- **`dim_date`** es una **vista generada** (`sequence` + `UNNEST`) desde 2025-01-01 hasta `current_date`: no ocupa S3 y nunca se queda corta.
+- **`fact_daily_price`** es una **vista** sobre `daily_prices` con solo claves y medidas: `date`, `asset`, `price` y `year` (este último para poder filtrar por partición).
+- **Clave natural** (`asset`, `date`) en lugar de claves subrogadas. Los activos no cambian de atributos con el tiempo (no hay dimensión lentamente cambiante) y la clave natural es corta, estable y legible para el agente de la Fase 7.
+- **DDL:** las tablas, en Terraform (`glue.tf`); las vistas, en `sql/views/NN_nombre.sql`. Un `terraform_data` con `local-exec` ejecuta `python -m marketpulse.common.athena --deploy-views sql/views` (en orden alfabético y con `CREATE OR REPLACE`, así que es idempotente). Solo se vuelve a lanzar si cambia la huella de algún `.sql`, una tabla o el *workgroup*. **Requisito:** `terraform apply` con el venv activado.
+
+**Alternativas descartadas:**
+- **Tablas físicas para hechos y fechas (CTAS):** duplicarían datos que ya están en gold y obligarían a refrescarlas.
+- **`dim_asset` como vista con `VALUES` escritos a mano:** duplicaría la watchlist.
+- **El proveedor `null`:** sería una dependencia nueva.
+- **`aws_athena_named_query`:** solo guarda la consulta, no la ejecuta.
+
+**Limitaciones:**
+- Si se borra un fichero de `sql/views/`, la vista no se elimina sola: hay que hacer `DROP VIEW` a mano.
+- `terraform destroy` no borra las vistas. No pasa nada: viven en la base de datos de Glue, que sí se borra.
+
+**Errores reales al desplegar:**
+1. `sequence(DATE, DATE, INTERVAL '1' DAY)` produjo `timestamp(0)`, que Glue no admite como tipo de columna de una vista.
+2. `sequence(DATE, DATE)` no existe en Athena v3.
+
+Solución: generar *timestamps* y convertirlos a `date` en una subconsulta, antes de calcular cualquier columna.
+
+---
+
+## D-024 · La fecha de un precio cripto es la del cierre (00:00 UTC) más cercano
+**Fecha:** 2026-10-21 · **Fase:** 4 · **Modifica:** D-015 (silver) y D-022 (*backfill*)
+
+**Contexto:** al validar `v_correlation_matrix` (paso 4.8), la correlación entre cripto y bolsa salía ≈ 0 (BTC-SPY −0,03). La `date` de cripto era el día UTC del instante del precio: el histórico de las 00:00 UTC del día D y la foto de las ~06:00 UTC de D. Su rentabilidad medía, sobre todo, lo que pasó **el día anterior**, mientras que el cierre de SPY del día D es de las 20:00 UTC de D. Comprobación: desplazando la cripto un día, BTC-SPY pasaba a 0,33 y ETH-SPY a 0,26.
+
+**Opciones:** (A) corregir la fecha en silver · (B) desplazar la cripto solo en la vista de correlación · (C) documentarlo y no tocar nada.
+
+**Decisión (aprobada por Alberto):** A. `silver.crypto_close_date(price_at) = (price_at − 12 h).date()`: cada precio es del día cuyo **cierre de las 00:00 UTC** tiene más cerca. Es la convención habitual de cierre diario en cripto.
+- 00:00 UTC del 16 (histórico) → **15**.
+- ~06:00 UTC del 21 (foto diaria) → **20**.
+- 17:50 UTC del 20 (ejecución manual) → **20**.
+
+**Motivo:** el error estaba en el **dato** (la etiqueta `date` no significaba lo mismo para cripto que para bolsa), no en la consulta. Corregirlo en silver arregla todas las vistas y lo que consulte el agente de la Fase 7. La opción B dejaría la trampa en gold para cada consulta futura.
+
+**Consecuencias:**
+- La última fecha cripto ahora es "ayer", como en bolsa y divisas. Rango de gold cripto: 2025-10-22 → 2026-10-20.
+- La frescura de cripto (2 días como máximo) sigue cumpliéndose.
+- Si un día tiene histórico (00:00) y foto diaria (06:00), sigue ganando la foto (`price_at` más tardío). Solo pasa en los días del *backfill* que solapan con la ingesta diaria.
+
+**Verificación:**
+- `Calidad: 69 comprobaciones, 0 fallan`.
+- Correlación cripto-bolsa del mismo día: BTC-SPY **0,33**, ETH-SPY **0,26**, SOL-SPY **0,34**. Si se desplaza la cripto un día, sale ≈ 0 (−0,00 y −0,06), así que **ya no queda desfase**.
+- Rentabilidades (1.897 filas) y volatilidad (1.665 filas) siguen idénticas a pandas.

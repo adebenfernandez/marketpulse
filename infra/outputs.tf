@@ -20,3 +20,8 @@ output "datalake_bucket_arn" {
   description = "ARN del bucket (se usará en las políticas de IAM de la Fase 3)"
   value       = aws_s3_bucket.datalake.arn
 }
+
+output "athena_workgroup" {
+  description = "Workgroup de Athena para todas las consultas de MarketPulse"
+  value       = aws_athena_workgroup.marketpulse.name
+}

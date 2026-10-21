@@ -46,6 +46,17 @@ def write_table(df: pd.DataFrame, schema: pa.Schema, table_dir: Path) -> Path:
     return table_dir
 
 
+def write_unpartitioned_table(df: pd.DataFrame, schema: pa.Schema, table_dir: Path) -> Path:
+    """Como write_table, pero en UN fichero sin particiones (tablas pequeñas: dimensiones)."""
+    table = pa.Table.from_pandas(df[schema.names], schema=schema, preserve_index=False)
+    table_dir.mkdir(parents=True, exist_ok=True)
+    final = table_dir / "part-0.parquet"
+    tmp = table_dir / ".part-0.parquet.tmp"  # empieza por punto: s3.py no sube temporales
+    pq.write_table(table, tmp)
+    tmp.replace(final)  # sustitución atómica, como en la capa bronze
+    return table_dir
+
+
 def read_table(table_dir: Path) -> pd.DataFrame:
     """Lee una tabla particionada (todas sus carpetas year=) como un único DataFrame."""
     return pq.read_table(table_dir).to_pandas()

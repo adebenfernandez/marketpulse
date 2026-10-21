@@ -35,7 +35,12 @@ def fetch_rates(client: HttpClient, fx: FxConfig) -> list[dict]:
         "providers": PROVIDER,
     }
     data = client.get_json(RATES_URL, params=params)
+    validate_rates(data, fx)
+    return data
 
+
+def validate_rates(data, fx: FxConfig) -> None:
+    """Comprueba la forma de la respuesta (la usan la ingesta diaria y la carga histórica)."""
     # Comprobación mínima de forma: si la API cambia de formato, paramos aquí.
     # (Las comprobaciones de calidad de verdad —rangos, nulos, frescura— son de la Fase 2.)
     if not isinstance(data, list) or not data:
@@ -50,7 +55,6 @@ def fetch_rates(client: HttpClient, fx: FxConfig) -> list[dict]:
     if missing:
         # No es motivo para parar (las demás divisas sí llegaron), pero tiene que quedar registrado
         logger.warning("Frankfurter no devolvió estas divisas: %s", sorted(missing))
-    return data
 
 
 def ingest(

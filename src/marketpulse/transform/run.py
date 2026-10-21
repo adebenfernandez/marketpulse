@@ -16,8 +16,19 @@ from pathlib import Path
 from marketpulse.common.config import DEFAULT_WATCHLIST_PATH, Watchlist, load_watchlist
 from marketpulse.common.storage import DEFAULT_DATA_ROOT, utc_today
 from marketpulse.ingest.run import LOG_FORMAT
-from marketpulse.quality.rules import check_gold, check_silver, has_errors, log_report
-from marketpulse.transform.gold import daily_prices_from, write_gold
+from marketpulse.quality.rules import (
+    check_dim_asset,
+    check_gold,
+    check_silver,
+    has_errors,
+    log_report,
+)
+from marketpulse.transform.gold import (
+    daily_prices_from,
+    dim_asset_from,
+    write_dim_asset,
+    write_gold,
+)
 from marketpulse.transform.silver import build_silver_frames, write_silver
 
 logger = logging.getLogger(__name__)
@@ -29,14 +40,16 @@ def run_transform(
     """Construye, comprueba y, si todo va bien, escribe silver y gold. True = se ha publicado."""
     silver = build_silver_frames(watchlist, root)
     gold = daily_prices_from(silver, watchlist)
+    dim_asset = dim_asset_from(watchlist)
 
     results = check_silver(silver) + check_gold(gold, watchlist, today or utc_today())
+    results += check_dim_asset(dim_asset, gold)
     log_report(results)
     if has_errors(results):
         logger.error("Calidad: hay errores. NO se escribe silver ni gold (se conserva lo anterior)")
         return False
 
-    written = write_silver(silver, root) | write_gold(gold, root)
+    written = write_silver(silver, root) | write_gold(gold, root) | write_dim_asset(dim_asset, root)
     logger.info("Publicado: %s", sorted(written))
     return True
 

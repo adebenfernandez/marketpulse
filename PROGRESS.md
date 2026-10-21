@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 3 terminada (2026-10-21)
-**Siguiente paso:** Fase 4 · SQL y modelo analítico en Athena (nueva sesión)
+**Fase actual:** Fase 4 técnicamente completa (2026-10-21), con el criterio 3 pendiente
+**Siguiente paso:** cerrar el criterio 3 de la Fase 4 (ronda de 5 preguntas sobre funciones ventana, ~5 min, ver el paso 4.10); después, Fase 5 · Infraestructura como código completa
 
 Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 
@@ -11,7 +11,7 @@ Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 | 1 | Ingesta en local | ✅ |
 | 2 | Transformación y data lake en S3 | ✅ |
 | 3 | Automatización con Lambda y EventBridge | ✅ |
-| 4 | SQL y modelo analítico en Athena | ⬜ |
+| 4 | SQL y modelo analítico en Athena | 🟡 |
 | 5 | Infraestructura como código completa | ⬜ |
 | 6 | CI/CD con GitHub Actions | ⬜ |
 | 7 | Agente text-to-SQL | ⬜ |
@@ -240,15 +240,102 @@ Plantilla para cada fase (se rellena al trabajarla):
 
 ## Fase 4 · SQL y modelo analítico en Athena
 **Criterios de aceptación:**
-- [ ] Las cuatro vistas devuelven resultados coherentes (comprobados a mano con 2-3 cálculos)
-- [ ] Ninguna consulta escanea más de unos pocos MB
-- [ ] Alberto sabe explicar qué hace cada función ventana
+- [x] Las cuatro vistas devuelven resultados coherentes (comprobados a mano con 2-3 cálculos) — pasos 4.6 a 4.9, más la comparación completa con pandas
+- [x] Ninguna consulta escanea más de unos pocos MB — como mucho 43 KB (paso 4.10)
+- [ ] Alberto sabe explicar qué hace cada función ventana — **PENDIENTE**: la ronda de 5 preguntas (paso 4.10) se saltó a petición de Alberto; no se puede marcar sin sus respuestas
 
 ### Pasos completados
+- Plan aprobado por Alberto (2026-10-21):
+  - *Backfill* único de CoinGecko (365 días) y Frankfurter (1 año); Alpha Vantage se queda en 100 días.
+  - Vistas desplegadas con `terraform_data` y un script de Python, sin proveedores nuevos.
+  - `dim_asset` generada por la transformación desde `watchlist.yaml`.
+  - *Workgroup* con un límite de 100 MB por consulta.
+  - Las explicaciones de las funciones ventana son criterio de cierre y no se pueden saltar.
+- Paso 4.1 — Precios y documentación oficiales, sin cambios en AWS:
+  - **Athena** (Price List API, `eu-north-1`): 5,00 USD por TB escaneado. Las consultas fallidas o canceladas también se cobran. El mínimo de 10 MB por consulta solo aparece explícito para las consultas federadas. Los resultados en S3 se pagan aparte, a precio de S3.
+  - **Glue Data Catalog**: 1 USD por cada 100.000 objetos al mes y 1 USD por millón de peticiones, con 1 M de objetos y 1 M de peticiones gratis al mes.
+  - **Workgroup**: el límite por consulta va de 10 MB a 7 EB; si se supera, la consulta se **cancela** (y se cobra lo escaneado). AWS recomienda una regla de ciclo de vida para abortar subidas *multipart* incompletas.
+  - ***Partition projection***: propiedades `projection.enabled=true` y `projection.year.type=integer` + `range`, y opcionalmente `storage.location.template`. Sin *crawlers* ni `MSCK REPAIR`.
+  - **Estimación:** gold ocupa unos 7 KB (unos 50 KB con el *backfill*). Aun cobrando 10 MB por consulta, 1.000 consultas al mes ≈ 10 GB ≈ 0,05 USD.
+  - **APIs de historia (llamadas reales):**
+    - Frankfurter `GET /v2/rates?from=2025-10-20&to=2026-10-21&providers=ECB` → `200`, 512 filas (256 días hábiles × 2 divisas), 32 KB, **con la misma forma `{date, base, quote, rate}` que la ingesta diaria**: silver lo puede leer sin cambios.
+    - CoinGecko `GET /coins/bitcoin/market_chart?days=365&interval=daily` (clave Demo) → `200`, 366 puntos `[timestamp_ms, precio]` a las 00:00 UTC (el último es "ahora"), 37 KB. **Tiene otra forma**: hace falta un lector nuevo en silver.
+    - El histórico de CoinGecko marca las 00:00 UTC y la foto diaria se toma hacia las 06:00 UTC. Hay que documentarlo en el modelo.
+- Paso 4.2 — *Backfill* (D-022): `ingest/backfill.py` (Frankfurter `from`/`to` en una petición; CoinGecko `/market_chart` 365 días por moneda; fuentes `frankfurter_backfill` y `coingecko_backfill`; sube solo esas carpetas), `frankfurter.validate_rates()` compartida, `silver.crypto_history_rows()` (solo las 00:00 UTC, `change_24h_pct` calculado, la foto diaria gana al histórico). Tests: `129 passed` (8 nuevos). Ejecutado por Claude con la autorización expresa de Alberto ("lo puedes comprobar tú").
+  - Evidencia:
+    - `build_lambda.py` → 193 ficheros, el mismo SHA-256 en dos construcciones.
+    - `terraform apply` → `2 changed` (solo `source_code_hash` de las Lambdas) y después `plan` → `No changes`.
+    - `python -m marketpulse.ingest.backfill` → Frankfurter `200`, 510 tipos (255 días); CoinGecko `200`, 366 puntos × 3; `S3: 4 subidos`.
+    - `aws lambda invoke marketpulse-transform` → `200`, `{"bronze_downloaded": 14, "uploaded": 6, "unchanged": 1}`, con `Deduplicado` fx 514→510, cripto 1098→1092 y bolsa 600→303, `Calidad: 59 comprobaciones, 0 fallan` y `Gold daily_prices: 1905 filas {'crypto': 1092, 'fx': 510, 'equity': 303}`. Hay particiones `year=2025` nuevas: 6 Parquet subidos y `stock_prices` sin cambios.
+  - Problema: el primer `build_lambda.py` generó un zip **sin dependencias**. Las carpetas de `build/deps` se quedaron en "Acceso denegado" (pendientes de borrar, probablemente retenidas por la sincronización de OneDrive) y `shutil.rmtree(..., ignore_errors=True)` ocultó el fallo. El `plan` iba a subir ese zip roto, pero se detectó antes del `apply`. Solución: el trabajo intermedio va a una carpeta temporal del sistema (fuera de OneDrive) y **solo un zip ya verificado** sustituye al anterior (`os.replace`). Las carpetas bloqueadas de `build/deps` quedan como restos inofensivos (ignoradas por Git) hasta que Windows las libere.
+- Paso 4.3 — `infra/athena.tf`: ciclo de vida del bucket (regla `borrar-resultados-athena`: prefijo `athena-results/`, expiración a 7 días y aborto de subidas *multipart* a 1 día) y *workgroup* `marketpulse` (`enforce_workgroup_configuration`, límite de 100 MB por consulta, Athena engine v3, resultados en `s3://<bucket>/athena-results/` con SSE-S3, sin métricas en CloudWatch). *Output* `athena_workgroup`. Ejecutado por Claude con la autorización expresa de Alberto → `2 added`.
+  - Evidencia: `get-work-group` → límite `104857600`, forzado `true`, `Athena engine version 3`, `SSE_S3` · `get-bucket-lifecycle-configuration` → la regla con `Days: 7` y `DaysAfterInitiation: 1` · `SELECT 1 AS hola` → `SUCCEEDED`, `DataScannedInBytes 0`, 339 ms, resultado `hola 1` en `athena-results/<id>.csv` (+ `.metadata`) · una consulta que pedía guardar el resultado en `s3://otro-bucket-cualquiera/` → también acabó en `athena-results/` (**el *workgroup* manda**).
+- Paso 4.4 — `infra/glue.tf`: base de datos `marketpulse` y tabla externa `daily_prices` (Parquet, `ParquetHiveSerDe`, 7 columnas con comentario y el mismo contrato que `schemas.py`, partición `year int` con *projection* `integer` en el rango 2025-2040, sin *crawlers*). `common/athena.py`: `run_query()` (espera asíncrona, error con motivo, para la consulta si tarda más de 120 s, devuelve los bytes escaneados) y la CLI `python -m marketpulse.common.athena "SQL"`. `tests/test_athena.py` (6). `pytest` → `135 passed`. **Alberto autoriza a Claude a ejecutar los `terraform apply` del resto de la Fase 4, enseñando antes el `plan`.** `apply` → `2 added`.
+  - Evidencia (consultas reales):
+    - Recuento por clase → crypto 1092 (2025-10-23 → 2026-10-21), equity 303 (2026-05-28 → 2026-10-20), fx 510 (2025-10-21 → 2026-10-20): **3.679 bytes**.
+    - La misma con `WHERE year = 2025` → crypto 210 y fx 100: **764 bytes** (*partition pruning*).
+    - `SELECT *` → 1.905 filas: **22.775 bytes**.
+    - `avg(price) WHERE asset = 'BTC'` → 77.933,82: **18.075 bytes**. Lee solo 2 columnas, pero `price` es la que más ocupa (dobles casi sin repetir).
+    - `count(*) GROUP BY year` → 2025: 310 y 2026: 1595: **0 bytes** (sale de los metadatos de Parquet, sin leer los datos).
+- Paso 4.5 — Modelo en estrella (D-023):
+  - `dim_asset`, tabla física escrita por la transformación desde la watchlist (`gold.dim_asset_from`, `write_unpartitioned_table`), con `annualization_days`.
+  - Constantes compartidas `PRICE_TYPE`, `SOURCE` y `ANNUALIZATION_DAYS` en `gold.py`.
+  - Regla `check_dim_asset`, que incluye la integridad referencial hechos → dimensión.
+  - Vistas `sql/views/01_dim_date.sql` y `02_fact_daily_price.sql`.
+  - `athena.deploy_views()` / `--deploy-views` / `--file`, la tabla `dim_asset` en `glue.tf` y `views.tf` (`terraform_data` + `local-exec`).
+  - Tests: `test_dim_asset.py` (5) y 3 más en `test_athena.py`. `pytest` → `143 passed`.
+  - Evidencia:
+    - Primer `apply` → la Lambda y `dim_asset` bien, pero las vistas fallaron con `Unsupported Hive type: timestamp(0)`. Al probar `sequence(date, date)` → `FUNCTION_NOT_FOUND`. Tras corregir `dim_date`, segundo `apply` → `Vista desplegada: 01_dim_date.sql / 02_fact_daily_price.sql` (el `terraform_data` *tainted* se recreó; no se borró nada en AWS).
+    - `invoke marketpulse-transform` → `Calidad: 69 comprobaciones, 0 fallan` (10 nuevas), `Gold dim_asset: 8 activos`, `uploaded 1`.
+    - Consultas: `dim_asset` → 8 filas correctas (833 bytes) · `dim_date` → 659 días, 2025-01-01 → 2026-10-21, 188 de fin de semana (0 bytes) · estrella `fact ⋈ dim_asset ⋈ dim_date` para septiembre de 2026 → crypto 90 filas (30 días × 3), equity 63 (21 sesiones × 3; el día 7 fue Labor Day), fx 44 (22 días hábiles × 2) (19.061 bytes) · hechos sin dimensión → 0.
+- Paso 4.6 — `sql/views/03_v_daily_returns.sql`: CTE con `LAG(price)` y `LAG("date")` `OVER (PARTITION BY asset ORDER BY "date")` sobre `fact_daily_price ⋈ dim_asset`; columnas `prev_date`, `prev_price`, `days_since_prev`, `simple_return`, `log_return` y `year`. Se descarta la primera fila de cada activo. Desplegada con `terraform apply` (el `terraform_data` se recrea al cambiar la huella de los `.sql`).
+  - Comprobación a mano:
+    - SPY 2026-10-19: 766,48 / 763,25 − 1 = **0,004232** y ln = **0,004223** (la vista da lo mismo), con `days_since_prev = 3`: el lunes se compara con el viernes.
+    - SPY 2026-10-14: 769,60 / 778,01 − 1 = **−0,010810**.
+    - EUR/USD 2026-10-20: 1,1215 / 1,1225 − 1 = **−0,000891**.
+    - BTC 2026-10-20: 82.850 / 82.019,58 − 1 = **0,010125**.
+  - Recuentos: crypto 1089 = 1092 − 3 primeras filas · equity 300 (237 de 1 día, 54 de 3 por los fines de semana, 9 de 4 por festivos de lunes o viernes) · fx 508 (402 de 1 día, 98 de 3, y de 2, 4 y 5 días por Año Nuevo, el 1 de mayo, Semana Santa y Navidad).
+  - Comparación completa con pandas (`groupby(asset).shift(1)`, el equivalente de `LAG`) sobre los Parquet de S3: **1.897 de 1.897 filas emparejadas, diferencia máxima 6,9e-18** (ruido de coma flotante).
+  - Limitación visible: el 2026-10-20 BTC compara la foto de las ~17:50 UTC (ejecución manual de la Lambda) con el histórico de las 00:00. No son 24 h exactas (D-022).
+- Paso 4.7 — `sql/views/04_v_rolling_volatility_30d.sql`: `COUNT`, `AVG` y `STDDEV_SAMP` de `log_return` `OVER (PARTITION BY asset ORDER BY "date" ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)`; anualización con `sqrt(dim_asset.annualization_days)`; solo filas con `n_obs = 30`.
+  - Resultado del 2026-10-20 (volatilidad anual): SOL 47,9 % · ETH 36,7 % · BTC 32,2 % · QQQ 17,0 % · VT 11,3 % · SPY 10,1 % · EUR/USD 5,1 % · EUR/GBP 3,0 %. El orden es coherente (cripto > tecnología > índice amplio > divisas).
+  - Recuentos: 334 días por cripto (363 − 29), 225 por divisa (254 − 29) y 71 por ETF (100 − 29).
+  - Comprobación a mano, SPY 2026-10-20: 30 rentabilidades, media 0,000134, varianza muestral (n − 1) 0,00004044 → desviación diaria **0,006359** × √252 = **0,1009** (igual que la vista).
+  - Comparación completa con pandas (`rolling(30).std()`, ddof = 1): **1.665 de 1.665 filas, diferencia máxima 1,2e-16**.
+  - Pendiente (criterio de cierre): explicación de Alberto de `LAG` y de `STDDEV_SAMP`/`AVG` `OVER` con marco `ROWS`. Las preguntas del 4.6 y del 4.7 se responderán en una ronda al cerrar la fase.
+- Paso 4.8 — `sql/views/05_v_correlation_matrix.sql`: últimos 90 días; para CADA pareja, precios cruzados solo en las fechas comunes (*self-join* por fecha), `LAG` dentro de la pareja (`PARTITION BY asset_a, asset_b`) y `corr()`. Salen 64 parejas (diagonal 1, simétrica). Desplegada.
+  - Resultado coherente dentro de cada clase: cripto entre sí 0,83-0,89; ETF entre sí 0,89-0,96 (SPY-VT 0,96); EUR/USD-EUR/GBP 0,36. Comparación con pandas por el mismo método: **64 de 64 parejas, diferencia máxima 5,6e-16, mismos `n_obs`**.
+  - **Hallazgo:** cripto-bolsa salía ≈ 0 (BTC-SPY −0,03). Hipótesis: desfase horario. El precio cripto de la fecha D es de las 00:00 UTC de D (histórico) o de las ~06:00 UTC de D (foto diaria), así que su rentabilidad mide sobre todo el día D−1; el cierre de SPY de D es de las 20:00 UTC de D. Comprobación: correlacionando la cripto del día siguiente, BTC-SPY pasa de −0,03 a **0,33** y ETH-SPY de −0,13 a **0,26**. **Hipótesis confirmada.** El cálculo es correcto, pero la etiqueta `date` de cripto no significa lo mismo que la de bolsa.
+  - **Corrección (opción A, aprobada por Alberto, D-024):** `silver.crypto_close_date()` = (instante − 12 h).date(), así que un precio cripto es del día cuyo cierre de las 00:00 UTC tiene más cerca. Tests actualizados y ampliados con los casos 00:00, 06:00 y 17:50 → `145 passed`. `build` + `apply` (`2 changed`, solo el código de las Lambdas) + `invoke` → `Calidad: 69 comprobaciones, 0 fallan`, `uploaded 4`. Gold cripto: 2025-10-22 → 2026-10-20.
+  - Matriz corregida (mismo día): BTC-SPY **0,33**, BTC-QQQ 0,35, BTC-VT 0,37, ETH-SPY 0,26, SOL-SPY 0,34; dentro de cada clase, sin cambios. Desplazando la cripto un día ahora sale ≈ 0 (BTC −0,00, ETH −0,06): **ya no hay desfase**. Las 64 parejas siguen iguales que pandas (diferencia máxima 7,8e-16), y las rentabilidades y la volatilidad también.
+- Paso 4.9 — `sql/views/06_v_monthly_summary.sql`: `first_value` / `last_value` `OVER (PARTITION BY asset, date_trunc('month', "date") ORDER BY "date" ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)`, `LEFT JOIN v_daily_returns`, y `GROUP BY` mes con `sessions`, apertura y cierre, mínimo y máximo, `monthly_return = exp(sum(log_return)) − 1`, volatilidad del mes, mejor y peor día, y `month_to_date`.
+  - Comprobación a mano: BTC sep-2026 = 83.576,13 / 78.552,78 (cierre de agosto) − 1 = **0,0639** ✔️ · SPY sep-2026 = 762,63 / 767,05 − 1 = **−0,0058** ✔️ · EUR/USD sep-2026 = 1,1355 / 1,1596 − 1 = **−0,0208** ✔️. Sesiones: SPY sep = 21 (Labor Day) y EUR/USD oct = 14 (días hábiles hasta el 20).
+  - Recuentos: crypto 39 meses (3 × 13) · equity 18 (3 × 6) · fx 26 (2 × 13). La suma de sesiones coincide con gold (1092/303/510).
+  - Trampa demostrada en Athena: `last_value(price) OVER (ORDER BY "date")` sin marco devuelve el precio de cada fila (767,18; 771,35...); con `UNBOUNDED FOLLOWING` devuelve el cierre del mes (762,63) en todas.
+  - Comparación con pandas (cierre del mes / cierre del mes anterior − 1): **75 de 75 meses comparables** (los 8 primeros meses no tienen mes anterior), diferencia máxima 6,7e-16; cierres idénticos (diferencia 0,0).
+- Paso 4.10 — Bytes escaneados con `SELECT *` (el peor caso) de cada vista: dim_date 0 · dim_asset 833 · fact_daily_price 21.250 · v_daily_returns 21.580 · v_rolling_volatility_30d 21.778 · v_correlation_matrix 37.470 · v_monthly_summary 43.145 → **146.056 bytes en total (0,14 MB)**, con un máximo de 43 KB por consulta frente al límite de 100 MB del *workgroup*. **Criterio 2 cumplido.**
 ### Problemas encontrados
+- Zip de Lambda sin dependencias: `build/deps` bloqueado por OneDrive y `rmtree(ignore_errors=True)` ocultó el fallo. Se detectó antes del `apply`; ahora se construye en una carpeta temporal y solo se sustituye un zip verificado (paso 4.2).
+- `dim_date`: `sequence(date, date, interval)` → `timestamp(0)`, que Glue no admite en vistas; `sequence(date, date)` no existe en Athena v3. Se generan *timestamps* y se convierten a fecha en una subconsulta (paso 4.5).
+- Correlación cripto-bolsa ≈ 0 por un **desfase horario** en la etiqueta `date` de cripto. Hipótesis confirmada desplazando un día y corregida en silver (D-024, paso 4.8).
+- Detalles: un test con una marca de tiempo equivocada (error del test, no del código), un carácter `·` que la consola de Windows no mostraba y un *heredoc* de Bash que no llegó a ejecutarse.
+- **Riesgos abiertos de esta fase:** (1) criterio 3 pendiente; (2) cripto mezcla precios de las 00:00 UTC (histórico) y de las ~06:00 UTC (foto diaria) como "cierre" del día (D-022, D-024); (3) los precios de bolsa no están ajustados por dividendos (D-012); (4) borrar un `.sql` de `sql/views/` no borra la vista (D-023); (5) `terraform apply` necesita el venv activado por el `local-exec` de las vistas; (6) quedan carpetas bloqueadas e inofensivas en `build/deps`.
+
 ### Qué ha aprendido Alberto
+- Athena y su modelo de coste (bytes escaneados), los *workgroups* con límite y la ubicación forzada de resultados, y el ciclo de vida de S3 para los resultados.
+- Glue Data Catalog y tablas externas (*schema-on-read*), *partition projection* frente a *crawlers*, *partition pruning* y la poda de columnas de Parquet (y sus límites: la columna `price` domina).
+- Modelado en estrella: tabla de hechos, dimensiones, granularidad, clave natural frente a subrogada e integridad referencial como regla de calidad.
+- Vistas SQL desplegadas como código (`terraform_data` + `local-exec`, *tainted*).
+- Funciones ventana: `LAG`, ventanas móviles con `ROWS BETWEEN`, `first_value`/`last_value` y la trampa del marco por defecto; rentabilidad simple frente a logarítmica, volatilidad anualizada y correlación de Pearson con fechas alineadas.
+- Validar resultados con criterio (no solo que "el SQL funciona"): comprobaciones a mano, comparación fila a fila con pandas y detección de un desfase temporal en los datos.
+- **Nota honesta:** la explicación propia de las funciones ventana (criterio 3) no se ha comprobado; las preguntas de los pasos 4.6 a 4.10 no se respondieron.
+
 ### Cómo contarlo en una entrevista
+"Puse SQL encima del data lake con Athena y el Glue Data Catalog: tablas externas sobre Parquet con *partition projection*, sin *crawlers*, y un *workgroup* que corta cualquier consulta de más de 100 MB. Diseñé un modelo en estrella con una dimensión de activos, una de fechas generada y una tabla de hechos, y cuatro vistas analíticas con funciones ventana: rentabilidades con `LAG`, volatilidad móvil anualizada, matriz de correlaciones y resumen mensual. Validé cada vista a mano y fila a fila contra pandas. Al revisar la matriz vi que cripto y bolsa salían incorreladas, sospeché un desfase horario en las fechas, lo confirmé desplazando una serie un día y lo corregí en la capa silver para que todo lo que consume gold heredara el arreglo. La consulta más cara lee 43 KB."
+
 ### Pregunta típica de entrevista
+**P:** ¿Qué diferencia hay entre una función ventana y un `GROUP BY`?
+**R:** `GROUP BY` junta las filas de cada grupo en una sola: de 1.905 precios diarios saco 8 filas, una por activo. Una función ventana calcula sobre un grupo de filas pero **no las junta**: cada fila conserva su detalle y gana una columna nueva, como el precio del día anterior con `LAG` o la volatilidad de las 30 sesiones anteriores con `STDDEV_SAMP OVER (ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)`. `PARTITION BY` decide qué filas forman cada ventana (las del mismo activo), `ORDER BY` su orden y el marco qué parte se mira. Hay que tener cuidado con el marco por defecto: con `ORDER BY` solo llega hasta la fila actual, y por eso `last_value` necesita `UNBOUNDED FOLLOWING`.
 
 ## Fase 5 · Infraestructura como código completa
 **Criterios de aceptación:**

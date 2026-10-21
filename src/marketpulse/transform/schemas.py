@@ -68,6 +68,20 @@ DAILY_PRICES = pa.schema(
         ("source", pa.string()),  # alphavantage | coingecko | frankfurter
     ]
 )
+# Dimensión de activos (modelo en estrella, Fase 4): UNA fila por activo con sus atributos
+# descriptivos. Sale de la watchlist, no de los datos: es "lo que sabemos de cada activo".
+DIM_ASSET = pa.schema(
+    [
+        ("asset", pa.string()),  # clave: la misma que en daily_prices (BTC, SPY, EUR/USD)
+        ("asset_name", pa.string()),  # nombre legible (Bitcoin, SPDR S&P 500 ETF...)
+        ("asset_class", pa.string()),  # crypto | equity | fx
+        ("currency", pa.string()),  # moneda en la que se expresa su precio
+        ("price_type", pa.string()),  # close | snapshot | reference_rate
+        ("source", pa.string()),  # API de la que viene
+        ("annualization_days", pa.int32()),  # sesiones al año: 365 cripto, 252 bolsa y divisas
+    ]
+)
 GOLD_TABLES: dict[str, tuple[pa.Schema, list[str]]] = {
     "daily_prices": (DAILY_PRICES, ["date", "asset"]),
+    "dim_asset": (DIM_ASSET, ["asset"]),
 }
