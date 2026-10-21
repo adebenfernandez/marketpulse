@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 3 en curso (2026-10-20)
-**Siguiente paso:** 2026-10-21 a partir de las 06:35 UTC (08:35 en España): comprobar la ejecución programada (criterio 3) y cerrar la Fase 3
+**Fase actual:** Fase 3 terminada (2026-10-21)
+**Siguiente paso:** Fase 4 · SQL y modelo analítico en Athena (nueva sesión)
 
 Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 
@@ -10,7 +10,7 @@ Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 | 0 | Preparación y seguridad | ✅ |
 | 1 | Ingesta en local | ✅ |
 | 2 | Transformación y data lake en S3 | ✅ |
-| 3 | Automatización con Lambda y EventBridge | 🟡 |
+| 3 | Automatización con Lambda y EventBridge | ✅ |
 | 4 | SQL y modelo analítico en Athena | ⬜ |
 | 5 | Infraestructura como código completa | ⬜ |
 | 6 | CI/CD con GitHub Actions | ⬜ |
@@ -167,7 +167,7 @@ Plantilla para cada fase (se rellena al trabajarla):
 **Criterios de aceptación:**
 - [x] Una ejecución manual de la Lambda escribe datos nuevos en S3 — paso 3.7
 - [x] Los logs se ven en CloudWatch — `aws logs tail` (paso 3.7)
-- [ ] La ejecución programada del día siguiente ha funcionado
+- [x] La ejecución programada del día siguiente ha funcionado — 2026-10-21, 06:00 y 06:30 UTC (paso 3.10)
 - [x] La política de IAM no usa `*` en recursos — `get-role-policy` y simulador (paso 3.6)
 
 ### Pasos completados
@@ -211,11 +211,32 @@ Plantilla para cada fase (se rellena al trabajarla):
 - Paso 3.9 — `infra/monitoring.tf`: una alarma por Lambda (`marketpulse-{ingest,transform}-errores`) sobre `AWS/Lambda` `Errors`, `Sum` ≥ 1 en 1 periodo de 300 s, `treat_missing_data = notBreaching` y `alarm_actions` → tema `marketpulse-alertas` (su política por defecto ya permite publicar a los servicios de la cuenta; comprobado con `get-topic-attributes`). `terraform apply` ejecutado por Alberto → `2 added`.
   - Evidencia: `describe-alarms` → 2 alarmas con 1 acción cada una · simulacro con `aws cloudwatch set-alarm-state --state-value ALARM` en `marketpulse-transform-errores` → historial `INSUFFICIENT_DATA to ALARM` (19:59 hora de España) y **email recibido por Alberto**.
   - No realizado (decisión de Alberto): la prueba de fallo real (bucket inexistente + invocación asíncrona + corrección de la deriva). El destino *on-failure* y los reintentos ante una excepción real **no se han visto funcionar**: solo están comprobados en su configuración (`get-function-event-invoke-config`).
+- Paso 3.10 — Ejecución programada del 2026-10-21, sin intervención:
+  - Ingesta a las 06:00:12 UTC: las 3 APIs en `200`, `failed: {}`, `uploaded: 5`, `REPORT Duration 14376 ms, Init 378 ms`.
+  - Transformación a las 06:30:18 UTC: `Calidad: 59 comprobaciones, 0 fallan`, `bronze_downloaded: 10, uploaded: 4`, `REPORT Duration 1648 ms, Billed 3842 ms, Init 2194 ms`.
+  - S3: los 5 ficheros de `dt=2026-10-21` (08:00:27 hora de España) y silver y gold reescritos a las 08:30:23.
+  - Métricas del día: `Invocations 1` y `Errors 0` en las dos funciones. Alarmas en `OK` (la de transformación volvió sola del simulacro a las 20:00:30 del día 20).
+  - Gold leído desde S3: de 305 a **311 filas**. Cripto pasa de 3 a 6 (nueva foto del 21). Bolsa pasa de 300 a 303 (el cierre del 20, que la ejecución local de las 19:27 del día 20 aún no tenía). Divisas sigue en 2 (a las 06:00 UTC el BCE aún no ha publicado el día 21, como se anticipó en la nota del paso 1.7). **Criterio 3 cumplido.**
+  - Observación: Frankfurter tardó **7.286 ms** (ayer, 148 ms) y el *timeout* de `HttpClient` es de 10 s. Si se repite, el reintento lo cubriría, pero conviene vigilarlo (riesgo abierto).
 ### Problemas encontrados
 - **Riesgo para la Fase 6 (encontrado en el paso 3.1):** la SCP del plan gratuito (y también la del plan de pago) incluye `DenyIAMRestrictedActions` con `iam:*Provider*`. Eso deniega `iam:CreateOpenIDConnectProvider`, así que no se podrá crear el proveedor OIDC de GitHub tal y como está planteado. No se resuelve ahora (no se adelantan fases), pero habrá que buscar alternativas al llegar a la Fase 6.
+- **Riesgos abiertos de esta fase:** (1) Frankfurter tardó 7,3 s el 2026-10-21, con un *timeout* de 10 s (vigilar); (2) los reintentos y el destino *on-failure* no se han visto funcionar ante un fallo real (prueba opcional pendiente); (3) la SCP deniega `iam:*Provider*`, lo que afecta al OIDC de la Fase 6; (4) idea: bajar la memoria de la transformación (usa 238 de 1024 MB), midiendo antes el efecto en la duración.
+
 ### Qué ha aprendido Alberto
+- Qué es *serverless* y cómo funciona Lambda: *handler*, `event` y `context`, `/tmp` efímero, arranque en frío y en caliente (2,2-2,8 s con pandas frente a 0), y cómo se factura (GB-s, incluido el *init*).
+- Empaquetar para otra plataforma: capas, *wheels* `manylinux` para arm64, versiones fijadas y por qué un *build* determinista evita redespliegues innecesarios.
+- Secretos en la nube: SSM SecureString con la clave `aws/ssm`, por qué no van en variables de entorno ni en el *state*, y cómo leer una política de KMS con sus condiciones.
+- IAM a fondo: rol de ejecución, política de confianza frente a política de permisos, políticas en línea, condiciones (`s3:prefix`, `aws:SourceAccount`), por qué `AWSLambdaBasicExecutionRole` usa `*`, y comprobar permisos con el simulador (y cómo una SCP de región puede engañarlo).
+- Orquestación y fiabilidad: EventBridge Scheduler y expresiones cron en UTC, invocación síncrona (200) frente a asíncrona (202), reintentos seguros gracias a la idempotencia, y el destino *on-failure* como alternativa a la DLQ.
+- Observabilidad: métricas de Lambda, alarmas con `treat_missing_data` y por qué un fallo debe lanzar una excepción para que se vea.
+- Nota: el repaso de preguntas de cierre se saltó a petición de Alberto. Las preguntas rápidas de los pasos se respondieron en el propio paso, sin comprobar su comprensión.
+
 ### Cómo contarlo en una entrevista
+"Automaticé el *pipeline* con dos funciones Lambda en arm64, programadas cada mañana con EventBridge Scheduler: la ingesta descarga tres APIs y escribe bronze, y media hora después la transformación reconstruye silver y gold y pasa 59 comprobaciones de calidad. Reutilicé el mismo código que ejecutaba en local: el *handler* solo adapta el entorno (claves desde SSM Parameter Store, disco temporal y S3) y lanza una excepción si algo falla, de modo que Lambda reintenta (es seguro porque todo es idempotente), la alarma de CloudWatch me avisa y, si se agotan los reintentos, llega el error por email a través de SNS. Cada función tiene su propio rol con permisos limitados a su prefijo del bucket, sin ningún `*` en recursos, y lo verifiqué con el simulador de IAM. Toda la infraestructura está en Terraform y cuesta prácticamente cero."
+
 ### Pregunta típica de entrevista
+**P:** Tu Lambda programada falla de madrugada. ¿Cómo te enteras y qué evita que el reintento estropee los datos?
+**R:** El *handler* no se traga el error: lanza una excepción, así que Lambda lo cuenta en la métrica `Errors`. Una alarma de CloudWatch sobre esa métrica me manda un email por SNS con el primer fallo. Como la invocación es asíncrona, Lambda reintenta dos veces y, si todo falla, el destino *on-failure* envía el evento con el error concreto. Los reintentos son seguros porque el proceso es idempotente: las rutas en S3 dependen solo de la fuente y la fecha, así que repetir sobrescribe en lugar de duplicar, y la transformación reconstruye silver y gold desde bronze y solo publica si pasan las comprobaciones de calidad.
 
 ## Fase 4 · SQL y modelo analítico en Athena
 **Criterios de aceptación:**
