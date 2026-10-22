@@ -27,3 +27,14 @@ variable "tfstate_bucket_name" {
   description = "Bucket del state de Terraform (infra/bootstrap): el deployer lee y escribe el state"
   type        = string
 }
+
+variable "alert_email" {
+  description = "Email de alertas: CodeBuild lo pasa a Terraform como TF_VAR_alert_email (desde SSM)"
+  type        = string
+  sensitive   = true
+}
+
+variable "github_repository_url" {
+  description = "URL HTTPS del repositorio de GitHub que despliega CodeBuild"
+  type        = string
+}

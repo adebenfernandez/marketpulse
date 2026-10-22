@@ -1,0 +1,46 @@
+# Despliegue de MarketPulse en CodeBuild (D-027). Se ejecuta en cada push a main con el rol
+# marketpulse-deployer (D-028): sin ninguna clave de AWS guardada en GitHub.
+#
+# Orden: instalar herramientas -> repetir la CI (ruff y pytest) -> construir el zip de las Lambdas
+# -> terraform plan -> GUARDIA (para si algo se borra o se reemplaza) -> terraform apply.
+# Si cualquier comando falla, CodeBuild para el build y no se ejecuta lo que viene después.
+
+version: 0.2
+
+env:
+  variables:
+    TF_VERSION: "1.16.6" # la misma versión que en local y en la CI
+    # SHA-256 oficial de terraform_1.16.6_linux_arm64.zip (releases.hashicorp.com, SHA256SUMS).
+    # Fijado aquí: si alguien cambiara el fichero en el servidor, la descarga no pasaría la prueba
+    TF_SHA256: "a750b5a11038f165846b2658c40c88cd7070aa67a61bab431a14ba27928ea9ea"
+    TF_IN_AUTOMATION: "1" # salida de Terraform sin las sugerencias pensadas para personas
+    TF_INPUT: "0" # Terraform nunca se queda esperando una respuesta por teclado
+  # TF_VAR_alert_email (desde SSM) y TF_VAR_tfstate_bucket_name los pone el proyecto de CodeBuild
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.13 # la misma que las Lambdas y el venv local
+    commands:
+      - curl -sSfLo /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_arm64.zip"
+      - echo "${TF_SHA256}  /tmp/terraform.zip" | sha256sum -c -
+      - unzip -o -q /tmp/terraform.zip -d /usr/local/bin && terraform -version
+      - pip install --quiet -e ".[dev]"
+
+  pre_build:
+    commands:
+      # La protección de main no se aplica en un repositorio privado del plan Free (paso 6.3):
+      # repetimos aquí la CI para que nada sin tests llegue a AWS
+      - ruff check .
+      - ruff format --check .
+      - pytest -q
+
+  build:
+    commands:
+      - python scripts/build_lambda.py
+      - cd infra
+      - terraform init -backend-config="bucket=${TF_VAR_tfstate_bucket_name}" -lockfile=readonly
+      - terraform plan -out=tfplan
+      - terraform show -json tfplan > plan.json
+      - python ../scripts/check_plan.py plan.json # GUARDIA: código 1 si algo se borra o reemplaza
+      - terraform apply tfplan

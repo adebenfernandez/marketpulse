@@ -18,6 +18,20 @@ locals {
   deployer_role_arn   = "arn:aws:iam::${var.account_id}:role/${local.deployer_role_name}"
   boundary_arn        = aws_iam_policy.workload_boundary.arn
 
+  # La conexión con sus DOS nombres: el servicio se llamaba CodeStar Connections y ahora
+  # CodeConnections. CodeBuild comprueba el acceso con las acciones antiguas (codestar-connections:*),
+  # así que se permiten los dos prefijos sobre los dos formatos de ARN (paso 6.6)
+  connection_arns = [
+    aws_codeconnections_connection.github.arn,
+    replace(aws_codeconnections_connection.github.arn, ":codeconnections:", ":codestar-connections:"),
+  ]
+  connection_use_actions = [
+    "codeconnections:GetConnection", "codeconnections:GetConnectionToken",
+    "codeconnections:UseConnection", "codeconnections:ListTagsForResource",
+    "codestar-connections:GetConnection", "codestar-connections:GetConnectionToken",
+    "codestar-connections:UseConnection", "codestar-connections:ListTagsForResource",
+  ]
+
   tfstate_bucket_arn = "arn:aws:s3:::${var.tfstate_bucket_name}"
   state_key          = "marketpulse/terraform.tfstate" # el mismo que el backend de infra/versions.tf
 
@@ -288,13 +302,10 @@ data "aws_iam_policy_document" "deployer" {
 
   # 11) CI/CD: leer (para el plan) y USAR la conexión y el proyecto, sin poder cambiarlos
   statement {
-    sid    = "ConexionConGitHub"
-    effect = "Allow"
-    actions = [
-      "codeconnections:GetConnection", "codeconnections:GetConnectionToken",
-      "codeconnections:UseConnection", "codeconnections:ListTagsForResource",
-    ]
-    resources = [aws_codeconnections_connection.github.arn]
+    sid       = "ConexionConGitHub"
+    effect    = "Allow"
+    actions   = local.connection_use_actions
+    resources = local.connection_arns
   }
   statement {
     sid       = "LeerSuProyecto"
@@ -327,13 +338,29 @@ data "aws_iam_policy_document" "deployer" {
     resources   = [local.deploy_project_arn]
   }
   statement {
-    sid    = "NoTocarLaConexion"
+    sid         = "NoTocarLaConexion"
+    effect      = "Deny"
+    not_actions = local.connection_use_actions # solo leerla y usarla, con cualquiera de sus nombres
+    resources   = local.connection_arns
+  }
+  # Ni cambiar el email de las alertas (silenciarlas) ni borrar los logs de sus propios despliegues
+  statement {
+    sid         = "NoSilenciarAlertas"
+    effect      = "Deny"
+    not_actions = ["ssm:GetParameter", "ssm:GetParameters", "ssm:ListTagsForResource"]
+    resources   = ["arn:aws:ssm:${local.reg}:${local.acct}:parameter/${local.p}/alert_email"]
+  }
+  statement {
+    sid    = "NoBorrarSusLogs"
     effect = "Deny"
-    not_actions = [
-      "codeconnections:GetConnection", "codeconnections:GetConnectionToken",
-      "codeconnections:UseConnection", "codeconnections:ListTagsForResource",
+    actions = [
+      "logs:DeleteLogGroup", "logs:DeleteLogStream", "logs:PutRetentionPolicy",
+      "logs:DeleteRetentionPolicy",
     ]
-    resources = [aws_codeconnections_connection.github.arn]
+    resources = [
+      "arn:aws:logs:${local.reg}:${local.acct}:log-group:/aws/codebuild/${local.deploy_project_name}",
+      "arn:aws:logs:${local.reg}:${local.acct}:log-group:/aws/codebuild/${local.deploy_project_name}:*",
+    ]
   }
   # Ni borrar los buckets (datos y state)
   statement {

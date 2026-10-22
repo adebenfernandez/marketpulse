@@ -17,3 +17,8 @@ output "deployer_role_arn" {
   description = "ARN del rol con el que CodeBuild despliega (D-028)"
   value       = aws_iam_role.deployer.arn
 }
+
+output "deploy_project_name" {
+  description = "Proyecto de CodeBuild del despliegue (aws codebuild start-build --project-name ...)"
+  value       = aws_codebuild_project.deploy.name
+}

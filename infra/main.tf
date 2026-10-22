@@ -67,4 +67,7 @@ module "cicd" {
   bucket_arn          = module.storage.bucket_arn
   alertas_topic_arn   = module.monitoring.alertas_topic_arn
   tfstate_bucket_name = var.tfstate_bucket_name
+
+  alert_email           = var.alert_email
+  github_repository_url = "https://github.com/adebenfernandez/marketpulse.git"
 }
