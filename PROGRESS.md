@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 4 técnicamente completa (2026-10-21), con el criterio 3 pendiente
-**Siguiente paso:** cerrar el criterio 3 de la Fase 4 (ronda de 5 preguntas sobre funciones ventana, ~5 min, ver el paso 4.10); después, Fase 5 · Infraestructura como código completa
+**Fase actual:** Fase 5 terminada (2026-10-22); Fase 4 cerrada el mismo día (criterio 3)
+**Siguiente paso:** Fase 6 · CI/CD con GitHub Actions (empezar por el riesgo de la SCP que deniega `iam:*Provider*`, que afecta al OIDC)
 
 Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 
@@ -11,8 +11,8 @@ Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 | 1 | Ingesta en local | ✅ |
 | 2 | Transformación y data lake en S3 | ✅ |
 | 3 | Automatización con Lambda y EventBridge | ✅ |
-| 4 | SQL y modelo analítico en Athena | 🟡 |
-| 5 | Infraestructura como código completa | ⬜ |
+| 4 | SQL y modelo analítico en Athena | ✅ |
+| 5 | Infraestructura como código completa | ✅ |
 | 6 | CI/CD con GitHub Actions | ⬜ |
 | 7 | Agente text-to-SQL | ⬜ |
 | 8 | Escaparate | ⬜ |
@@ -242,7 +242,7 @@ Plantilla para cada fase (se rellena al trabajarla):
 **Criterios de aceptación:**
 - [x] Las cuatro vistas devuelven resultados coherentes (comprobados a mano con 2-3 cálculos) — pasos 4.6 a 4.9, más la comparación completa con pandas
 - [x] Ninguna consulta escanea más de unos pocos MB — como mucho 43 KB (paso 4.10)
-- [ ] Alberto sabe explicar qué hace cada función ventana — **PENDIENTE**: la ronda de 5 preguntas (paso 4.10) se saltó a petición de Alberto; no se puede marcar sin sus respuestas
+- [x] Alberto sabe explicar qué hace cada función ventana — ronda de 5 preguntas hecha al cerrar la Fase 5 (2026-10-22), ver la nota de abajo
 
 ### Pasos completados
 - Plan aprobado por Alberto (2026-10-21):
@@ -319,7 +319,7 @@ Plantilla para cada fase (se rellena al trabajarla):
 - `dim_date`: `sequence(date, date, interval)` → `timestamp(0)`, que Glue no admite en vistas; `sequence(date, date)` no existe en Athena v3. Se generan *timestamps* y se convierten a fecha en una subconsulta (paso 4.5).
 - Correlación cripto-bolsa ≈ 0 por un **desfase horario** en la etiqueta `date` de cripto. Hipótesis confirmada desplazando un día y corregida en silver (D-024, paso 4.8).
 - Detalles: un test con una marca de tiempo equivocada (error del test, no del código), un carácter `·` que la consola de Windows no mostraba y un *heredoc* de Bash que no llegó a ejecutarse.
-- **Riesgos abiertos de esta fase:** (1) criterio 3 pendiente; (2) cripto mezcla precios de las 00:00 UTC (histórico) y de las ~06:00 UTC (foto diaria) como "cierre" del día (D-022, D-024); (3) los precios de bolsa no están ajustados por dividendos (D-012); (4) borrar un `.sql` de `sql/views/` no borra la vista (D-023); (5) `terraform apply` necesita el venv activado por el `local-exec` de las vistas; (6) quedan carpetas bloqueadas e inofensivas en `build/deps`.
+- **Riesgos abiertos de esta fase:** (1) ~~criterio 3 pendiente~~ → cerrado el 2026-10-22; (2) cripto mezcla precios de las 00:00 UTC (histórico) y de las ~06:00 UTC (foto diaria) como "cierre" del día (D-022, D-024); (3) los precios de bolsa no están ajustados por dividendos (D-012); (4) borrar un `.sql` de `sql/views/` no borra la vista (D-023); (5) `terraform apply` necesita el venv activado por el `local-exec` de las vistas; (6) quedan carpetas bloqueadas e inofensivas en `build/deps`.
 
 ### Qué ha aprendido Alberto
 - Athena y su modelo de coste (bytes escaneados), los *workgroups* con límite y la ubicación forzada de resultados, y el ciclo de vida de S3 para los resultados.
@@ -328,7 +328,13 @@ Plantilla para cada fase (se rellena al trabajarla):
 - Vistas SQL desplegadas como código (`terraform_data` + `local-exec`, *tainted*).
 - Funciones ventana: `LAG`, ventanas móviles con `ROWS BETWEEN`, `first_value`/`last_value` y la trampa del marco por defecto; rentabilidad simple frente a logarítmica, volatilidad anualizada y correlación de Pearson con fechas alineadas.
 - Validar resultados con criterio (no solo que "el SQL funciona"): comprobaciones a mano, comparación fila a fila con pandas y detección de un desfase temporal en los datos.
-- **Nota honesta:** la explicación propia de las funciones ventana (criterio 3) no se ha comprobado; las preguntas de los pasos 4.6 a 4.10 no se respondieron.
+- **Ronda de funciones ventana (criterio 3, 2026-10-22), con casos nuevos:**
+  - P1 (`LAG` con y sin `PARTITION BY`): Alberto pidió la respuesta. Se le explicó (colas separadas del supermercado) y la variante (BTC del lunes → domingo, 1 día frente a 3 de SPY) llegó correcta, pero pegada de otra fuente.
+  - P2 (marco `ROWS` recortado y `n_obs = 30`): primero pegada de otra fuente; después respondida por él → "5 filas" y "no sería comparable ni fiable". Correcta.
+  - P3 (anualizar y `STDDEV_SAMP`): respuesta pulida, comprobada con una variante que no se podía copiar (activo de 4 días por semana) → "sqrt(208)" y "n − 1 porque es una muestra". Correcta.
+  - P4 (trampa de `last_value`): correcta, y la comprobación con `first_value` (principio del marco fijo y final móvil) también.
+  - P5 (fechas alineadas en la correlación): correcta (1 día frente a 3; los movimientos de fin de semana de BTC quedan sin pareja).
+  - **Valoración honesta:** las cinco ideas están entendidas (P3 y P4, comprobadas con variantes propias). La P1 se resolvió con ayuda. Para repasar antes de una entrevista: explicar `LAG` + `PARTITION BY` en voz alta, sin mirar.
 
 ### Cómo contarlo en una entrevista
 "Puse SQL encima del data lake con Athena y el Glue Data Catalog: tablas externas sobre Parquet con *partition projection*, sin *crawlers*, y un *workgroup* que corta cualquier consulta de más de 100 MB. Diseñé un modelo en estrella con una dimensión de activos, una de fechas generada y una tabla de hechos, y cuatro vistas analíticas con funciones ventana: rentabilidades con `LAG`, volatilidad móvil anualizada, matriz de correlaciones y resumen mensual. Validé cada vista a mano y fila a fila contra pandas. Al revisar la matriz vi que cripto y bolsa salían incorreladas, sospeché un desfase horario en las fechas, lo confirmé desplazando una serie un día y lo corregí en la capa silver para que todo lo que consume gold heredara el arreglo. La consulta más cara lee 43 KB."
@@ -339,9 +345,9 @@ Plantilla para cada fase (se rellena al trabajarla):
 
 ## Fase 5 · Infraestructura como código completa
 **Criterios de aceptación:**
-- [ ] `terraform plan` dice "No changes"
-- [ ] El README explica cómo desplegar desde cero
-- [ ] Nada se ha creado a mano en la consola sin estar en Terraform
+- [x] `terraform plan` dice "No changes" — pasos 5.2 a 5.7 (también tras importar y refactorizar)
+- [x] El README explica cómo desplegar desde cero — paso 5.8 (revisado contra el código, **no** ejecutado en una cuenta vacía)
+- [x] Nada se ha creado a mano en la consola sin estar en Terraform — inventario del paso 5.8 (SNS y Budgets importados en el 5.5 y el 5.6)
 
 ### Pasos completados
 - Plan aprobado por Alberto (2026-10-22): 5.1 inventario · 5.2 deuda técnica (cambio falso del scheduler y venv de las vistas) · 5.3 bucket del *state* (`infra/bootstrap/`) · 5.4 *backend* S3 con `use_lockfile` (sin DynamoDB: su bloqueo está obsoleto según la documentación de HashiCorp) · 5.5 importar SNS · 5.6 importar el presupuesto · 5.7 módulos con `moved` · 5.8 README y nuevo inventario · 5.9 cierre (incluida la ronda de funciones ventana aplazada de la Fase 4).
@@ -373,11 +379,27 @@ Plantilla para cada fase (se rellena al trabajarla):
   - Evidencia: `init` → `analytics`, `storage`, `monitoring` y `compute` registrados · `fmt -recursive -check` y `validate` correctos · `plan` → **33 `has moved to`** y `0 to add, 0 to change, 0 to destroy`.
   - Primer `apply` de Alberto: no escribió nada (el *state* seguía en *serial* 4, sin direcciones `module.`, y no había ningún candado entre las 12:20 y las 13:02 UTC en el bucket: falló antes de coger el candado). Hipótesis: PowerShell sin `$env:TF_DATA_DIR`. Además, Claude borró ese `tfplan` sin que se hubiera aplicado, así que se regeneró (idéntico). Segundo `apply` con las variables puestas → `0 added, 0 changed, 0 destroyed`.
   - Evidencia final: `state list` → 42 entradas (solo `data.aws_caller_identity` y `data.aws_region` en la raíz; `module.compute` 21, `module.storage` 7, `module.monitoring` 7 y `module.analytics` 5) · *state* en S3 → *serial* 5, escrito a las 13:03:30 UTC · `plan` → **`No changes`**, ya sin ningún *moved* pendiente · `terraform output` → los mismos valores de siempre. `tfplan` borrado.
+- Paso 5.8 — README "Desplegar desde cero" (requisitos, venv y `.env`, credenciales y `TF_DATA_DIR`, *bootstrap*, `backend.hcl` y `terraform.tfvars`, `build_lambda.py`, `init -backend-config` + `plan` + `apply`, pasos fuera de Terraform a propósito (confirmar el email de SNS, escribir las claves en SSM, `MARKETPULSE_BUCKET` en `.env`), primera ejecución y cómo desmontarlo).
+  - Revisado contra el código: `.env.example` (faltaba crear `.env`), el `backfill` necesita `MARKETPULSE_BUCKET`, `out.json` no estaba ignorado (→ `$env:TEMP`), y `common/athena.py` solo necesita credenciales. La expresión de PowerShell que lee las claves de `.env` se probó en seco: longitudes 27 y 16, iguales a las de SSM (paso 3.5), sin mostrar los valores.
+  - **No probado de verdad:** no se ha desplegado en una cuenta vacía (solo hay una cuenta). Es una revisión del orden y de los comandos contra el código, no una ejecución.
+  - **Inventario final (solo lectura):** 13 recursos con `project=marketpulse` en la API de etiquetas, **todos con `managed_by=terraform`** (12 de `infra/` y el bucket del *state* con `stack=bootstrap`). Por servicio: 3 roles de IAM, 2 programaciones, 2 tablas + 6 vistas de Glue, 1 presupuesto, 1 tema, 2 buckets, 2 alarmas, 2 grupos de logs, 2 parámetros, 2 Lambdas y el *workgroup* (`primary` es de AWS). Todo aparece en el *state* de `infra/` (26 bloques de recurso) o en el de `infra/bootstrap/` (7). Fuera de Terraform, **a propósito**: los valores de las claves en SSM (D-021), la confirmación del email de SNS y los datos de S3. Las vistas las gestiona el `terraform_data` (D-023).
 ### Problemas encontrados
 - El inventario de la Fase 0 no coincidía con la realidad: la alerta del 100 % y el filtro de créditos no existen (paso 5.1). Lección: una evidencia de consola en el momento de crear algo no garantiza que siga así; el código y el *plan* sí lo vigilan.
+- Cambios falsos *known after apply* (pasos 5.2 y 5.5): un `data` que lee un recurso con cambios pendientes se resuelve en el `apply`. Solución: construir los ARN con datos ya conocidos.
+- La alerta del 100 % falló con `CreationLimitExceededException` (un solo destinatario SNS por alerta) por un resto huérfano de la API de Budgets. El segundo `apply` funcionó (paso 5.6).
+- Comprobaciones que coincidieron con un `apply` de Alberto: el candado del *state* bloqueó el `plan` (paso 5.5). Un `apply` sin `$env:TF_DATA_DIR` no llegó a S3 (paso 5.7). Claude borró un `tfplan` sin aplicar; se regeneró.
+- **Riesgos abiertos de esta fase:** (1) el despliegue desde cero está revisado, pero no ejecutado en una cuenta vacía; (2) heredados: venv activado para las vistas (documentado en el README), carpetas bloqueadas en `build/deps` y la SCP que deniega `iam:*Provider*` (Fase 6); (3) el *state* del *bootstrap* es local (si se pierde, se recupera con un `import` del bucket).
 ### Qué ha aprendido Alberto
+- Que IaC no es solo crear: inventariar lo que existe, detectar la deriva (`plan` solo ve lo que está en el *state*) y traer lo manual con bloques `import`, corrigiendo de paso lo que se había desviado (el filtro de créditos y la alerta del 100 %).
+- *State* remoto: el problema del huevo y la gallina (*bootstrap*), el versionado como copia de seguridad, el bloqueo nativo de S3 con `use_lockfile` (y por qué DynamoDB ya no hace falta), la configuración parcial del *backend* y `init -migrate-state`.
+- Leer un *plan* con criterio: distinguir un cambio real de uno falso (*known after apply*), parar ante un cambio inesperado (`billing_view_arn -> null`) y saber que un `apply` puede quedarse a medias sin romper nada.
+- Módulos: variables, *outputs*, direcciones de recursos y `moved` para refactorizar sin destruir (33 recursos movidos y 0 cambios).
+- Detalles de seguridad: secretos y datos personales fuera del código (`terraform.tfvars` ignorado, `sensitive`, ARN construidos sin el número de cuenta) y la sentencia por defecto del tema SNS, sin la cual las alarmas se quedarían mudas.
 ### Cómo contarlo en una entrevista
+"Llevé toda la infraestructura del proyecto a Terraform sin parar el servicio. Primero hice un inventario y encontré dos cosas creadas a mano (el tema de alertas y el presupuesto) y una deriva peligrosa: el presupuesto contaba los créditos, así que sus alertas nunca habrían saltado. Las importé con bloques `import`, revisando cada *plan* para que solo cambiara lo que yo quería, y al corregir el filtro el gasto real pasó de 0 a 0,009 USD. Moví el *state* a un bucket versionado con bloqueo nativo de S3 y reorganicé el código en cuatro módulos con bloques `moved`: 33 recursos cambiaron de dirección sin que AWS se enterara. El resultado es un `terraform plan` sin cambios y un README para desplegarlo desde cero."
 ### Pregunta típica de entrevista
+**P:** Tienes recursos creados a mano en la consola y quieres gestionarlos con Terraform. ¿Cómo lo haces sin romper nada?
+**R:** Primero un inventario, porque `terraform plan` no ve lo que nunca estuvo en el *state*. Después escribo el código que describe el recurso tal y como existe y añado un bloque `import` con su ID. A diferencia del comando `terraform import`, el bloque pasa por un `plan`, así que veo antes si mi código difiere de la realidad. Busco `0 to destroy` y que los únicos cambios sean los que quiero, como etiquetas o una corrección consciente. Un ejemplo: al importar una política de SNS tuve que copiar también la sentencia por defecto, porque si no, el *plan* la habría borrado y las alarmas de CloudWatch habrían dejado de avisar sin dar error. Cuando el *plan* sale limpio, aplico, compruebo que el siguiente *plan* dice `No changes` y quito los bloques `import`.
 
 ## Fase 6 · CI/CD con GitHub Actions
 **Criterios de aceptación:**
