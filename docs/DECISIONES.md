@@ -507,3 +507,44 @@ Fuente: [Terraform · Backend type: s3](https://developer.hashicorp.com/terrafor
 **Comprobado:** `plan` → 33 `has moved to` y `0 to add, 0 to change, 0 to destroy`; después del `apply`, `state list` con direcciones `module.` y `plan` → `No changes`.
 
 Fuente: [Terraform · Refactoring modules](https://developer.hashicorp.com/terraform/language/modules/develop/refactoring)
+
+---
+
+## D-027 · CI en GitHub Actions y despliegue con CodeBuild + CodeConnections (sin OIDC)
+**Fecha:** 2026-10-22 · **Fase:** 6 · **Se aparta del informe** (GitHub Actions con OIDC)
+
+**Contexto:**
+- La Fase 6 pide que un PR con un test roto falle en CI y que un *merge* a `main` despliegue **sin ninguna clave de AWS guardada en GitHub**.
+- El informe lo planteaba con OIDC, pero la SCP de la cuenta (`DenyIAMRestrictedActions`, presente también en el plan de pago) deniega `iam:*Provider*`: `aws iam list-open-id-connect-providers` → `AccessDenied ... explicit deny in a service control policy`.
+- La misma SCP permite `codebuild:*`, `codeconnections:*` y `sts:*`.
+
+**Opciones:**
+- (A) CI en GitHub Actions y despliegue con CodeBuild, disparado por un *webhook* a través de CodeConnections.
+- (B) Solo CI, con el despliegue manual.
+- (C) Activar las funciones avanzadas.
+- (D) Usuario de IAM con claves en GitHub Secrets.
+
+**Decisión (aprobada por Alberto):** A.
+- **GitHub Actions:** ruff, pytest y `terraform fmt`/`validate` en cada PR, sin credenciales de AWS.
+- **CodeBuild** (`arm1.small`, imagen Amazon Linux 2023 AArch64 `standard:3.0` o `4.0`, que trae Python 3.13): con un *push* a `main`, ejecuta tests, *build*, `plan`, una guardia que para si hay algún *destroy* o *replace*, y `apply`, con un rol de IAM de mínimo privilegio.
+- **CodeConnections:** conexión GitHub App en `eu-north-1`, limitada al repositorio `marketpulse`.
+
+**Motivo:**
+- B no cumple el criterio.
+- C es de pago, irreversible y CLAUDE.md la prohíbe sin permiso.
+- D incumple el criterio y la regla de no usar claves permanentes.
+- Con A, las credenciales nunca salen de AWS: son las del rol de CodeBuild.
+
+**Precios y límites (comprobados el 2026-10-22):**
+- **CodeBuild** (AWS Price List API, `eu-north-1`): **0,00365 USD por minuto** en ARM `g1.small` (`arm1.small`). Capa gratuita de **100 minutos al mes** en `arm1.small` o `general1.small`, que **no caduca** (página oficial de precios). Aparte se pagan los logs de CloudWatch, S3 y KMS si se usan; aquí, sin artefactos.
+- **CodeConnections:** disponible en `eu-north-1` (tabla oficial de *endpoints*). Ninguna página oficial indica un cargo propio por conexión. Lo que cobra es CodePipeline, que no usamos.
+- **GitHub Actions:** 2.000 minutos al mes gratis para repositorios privados (GitHub Free). Sin método de pago, al agotarlos se bloquea, no se cobra.
+- **Estimación:** un despliegue de unos 5 minutos → 20 *merges* al mes caben en la capa gratuita, y fuera de ella cuestan unos 0,02 USD. La CI, unos 2 minutos por PR.
+
+**Riesgos:**
+- El rol de despliegue puede crear y modificar roles `marketpulse-*` (escalada de privilegios): se acota por ARN en el paso 6.5.
+- El zip construido en Linux puede no tener la misma huella que el de Windows.
+- El `apply` es automático: lo mitiga la guardia ante *destroy* o *replace*.
+- Terraform se descarga en cada *build* desde `releases.hashicorp.com`, con verificación SHA-256.
+
+Fuentes: [Managed policies for your organization](https://docs.aws.amazon.com/accounts/latest/reference/scps-and-rcps-for-projects.html) · [CodeBuild pricing](https://aws.amazon.com/codebuild/pricing/) · [CodeBuild available runtimes](https://docs.aws.amazon.com/codebuild/latest/userguide/available-runtimes.html) · [CodeBuild GitHub App connections](https://docs.aws.amazon.com/codebuild/latest/userguide/connections-github-app.html) · [CodeConnections endpoints](https://docs.aws.amazon.com/general/latest/gr/codestar_connections.html) · [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)

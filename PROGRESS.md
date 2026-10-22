@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 5 terminada (2026-10-22); Fase 4 cerrada el mismo día (criterio 3)
-**Siguiente paso:** Fase 6 · CI/CD con GitHub Actions (empezar por el riesgo de la SCP que deniega `iam:*Provider*`, que afecta al OIDC)
+**Fase actual:** Fase 6 · CI/CD (en curso desde 2026-10-22)
+**Siguiente paso:** Fase 6, paso 6.2 (revisión de secretos en el historial y primer `git push`, con permiso de Alberto)
 
 Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 
@@ -13,7 +13,7 @@ Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 | 3 | Automatización con Lambda y EventBridge | ✅ |
 | 4 | SQL y modelo analítico en Athena | ✅ |
 | 5 | Infraestructura como código completa | ✅ |
-| 6 | CI/CD con GitHub Actions | ⬜ |
+| 6 | CI/CD con GitHub Actions | 🟡 |
 | 7 | Agente text-to-SQL | ⬜ |
 | 8 | Escaparate | ⬜ |
 
@@ -407,6 +407,13 @@ Plantilla para cada fase (se rellena al trabajarla):
 - [ ] Un merge a `main` despliega sin ninguna clave de AWS guardada en GitHub
 
 ### Pasos completados
+- Plan aprobado por Alberto (2026-10-22), **enfoque A** (D-027): la SCP deniega `iam:*Provider*` (también `list-open-id-connect-providers`), así que no hay OIDC. CI en GitHub Actions y despliegue con CodeBuild + CodeConnections. Pasos: 6.1 precios y documentación · 6.2 revisión de secretos y primer `push` · 6.3 CI y PR con un test roto · 6.4 conexión con GitHub · 6.5 rol de despliegue · 6.6 CodeBuild y `buildspec` con guardia ante *destroy* · 6.7 prueba de extremo a extremo · 6.8 cierre.
+- Paso 6.1 — Precios y documentación oficiales, sin cambios: CodeBuild **0,00365 USD/min** en `arm1.small` en Estocolmo (Price List API) con 100 min/mes gratis que no caducan · imágenes AL2023 AArch64 `standard:3.0`/`4.0` con Python 3.13 · CodeConnections disponible en `eu-north-1`, sin cargo propio documentado · GitHub Actions 2.000 min/mes gratis en privados (sin método de pago se bloquea, no se cobra). Permisos que necesita el rol de CodeBuild para la conexión: `codeconnections:GetConnectionToken` y `GetConnection`. Decisión D-027.
+- Paso 6.2 — Revisión de secretos en **todo** el historial (10 commits, 113 ficheros distintos), sin herramientas nuevas (`git log --all -p` + un script de Python que solo imprime "aparece/no aparece"):
+  - Ficheros sensibles que hayan entrado alguna vez: **ninguno** (solo `.env.example`). Ni `.env`, `tfstate`, `tfvars`, `backend.hcl`, `tfplan`, `data/`, el PDF del informe ni zips.
+  - Contenido: **no aparece** el número de cuenta, ningún email, claves de AWS (`AKIA`/`ASIA` o secretos de 40 caracteres), tokens de GitHub ni de Anthropic, claves privadas, el UUID de la suscripción, los nombres completos de los buckets, ARN de sesiones ni el **valor real** de ninguna clave de `.env`.
+  - Controles positivos (para comprobar que el escáner funciona): `marketpulse-alertas` → 7 apariciones; `<ID-CUENTA>` → 1; `336392948345` (cuenta pública de AWS que publica la capa de pandas) → 4.
+  - **Corrección:** el *push* ya existía. `origin/main` está en `e018f86` (Fase 2), con `update by push` en el *reflog*: Alberto subió las fases 0-2. La nota "todavía sin `git push`" de la Fase 0 estaba desactualizada. Quedan **7 commits** por subir (`3f4d56c` → `67f0eeb`). El repositorio sigue siendo **privado** (la API pública de GitHub responde 404).
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista
