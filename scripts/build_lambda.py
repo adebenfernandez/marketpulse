@@ -5,7 +5,8 @@ Uso (desde la raíz del proyecto, con el venv activado):
     python scripts/build_lambda.py --update-lock  # actualiza config/lambda-requirements.txt
 
 Qué mete en el zip:
-  - Nuestro código: src/marketpulse/ -> marketpulse/ (sin cachés __pycache__).
+  - Nuestro código: src/marketpulse/ -> marketpulse/ (sin cachés __pycache__ ni el agente,
+    que no se ejecuta en Lambda: NOT_FOR_LAMBDA).
   - La configuración: config/watchlist.yaml (Lambda arranca en /var/task, la raíz del zip, así
     que la ruta relativa "config/watchlist.yaml" del código sigue funcionando).
   - Las dependencias de pyproject.toml QUE NO TRAE la capa AWS SDK for pandas (requests, PyYAML,
@@ -43,6 +44,11 @@ PLATFORMS = ["manylinux2014_aarch64", "manylinux_2_28_aarch64"]
 # Lo que ya trae la capa AWS SDK for pandas (paso 3.1). No se empaqueta: duplicarlo engordaría
 # el zip y podría tapar la versión de la capa con otra distinta
 LAYER_PROVIDED = {"pandas", "pyarrow", "boto3"}
+
+# Subpaquetes de src/marketpulse que NO van a Lambda: el agente (Fase 7) se ejecuta en Docker,
+# sus dependencias (sqlglot, anthropic...) no están en el zip, y meterlo cambiaba la huella del zip
+# y redesplegaba las Lambdas en cada cambio del agente (build 6, paso 7.3)
+NOT_FOR_LAMBDA = {"agent"}
 
 # Límites oficiales de Lambda: 50 MB el zip subido directamente; 250 MB descomprimido
 # sumando función y capas
@@ -186,7 +192,7 @@ def files_to_package(deps_dir: Path) -> list[tuple[Path, str]]:
             entries.append((path, f"{prefix}{rel.as_posix()}"))
 
     add_tree(deps_dir, "", skip_top={"bin"})  # bin/: ejecutables de consola que no usamos
-    add_tree(ROOT / "src" / "marketpulse", "marketpulse/")
+    add_tree(ROOT / "src" / "marketpulse", "marketpulse/", skip_top=NOT_FOR_LAMBDA)
     entries.append((ROOT / "config" / "watchlist.yaml", "config/watchlist.yaml"))
     return sorted(entries, key=lambda e: e[1])
 
@@ -228,6 +234,9 @@ def verify_zip(zip_path: Path) -> dict:
     ]
     missing = [r for r in required if r not in names]
     assert not missing, f"Faltan en el zip: {missing}"
+
+    extra = [n for n in names if n.split("/")[:2] in (["marketpulse", p] for p in NOT_FOR_LAMBDA)]
+    assert not extra, f"El zip incluye código que no es de Lambda: {extra}"
 
     top_level = {n.split("/")[0] for n in names}
     leaked = top_level & LAYER_PROVIDED

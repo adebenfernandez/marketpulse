@@ -5,6 +5,7 @@ Se amplía en cada fase.
 
 | Término | Explicación sencilla | Explicación técnica |
 |---|---|---|
+| `-target` (Terraform) | Pedir al albañil que arregle solo la ventana, aunque en el plano haya más obras pendientes | Opción de `plan`/`apply` que limita el cambio a un recurso concreto (y a lo que depende de él). Terraform avisa de que no es para el uso diario: el resto de cambios siguen pendientes. Aquí sirve para aplicar a mano solo el techo (D-032) y dejar que CodeBuild despliegue el código de las Lambdas |
 | `__main__.py` y `python -m` | La puerta principal de un paquete | `python -m paquete` ejecuta el fichero `__main__.py` de ese paquete. Así se lanza un programa por su nombre de módulo, sin escribir rutas de ficheros |
 | `.gitignore` | La lista de "esto no se fotografía" para Git | Fichero de patrones con los ficheros que Git no rastrea. No protege lo que ya se añadió antes |
 | ACL (S3) | Un post-it con permisos pegado a cada caja | Sistema antiguo de permisos por objeto en S3. Hoy se desactiva (`BucketOwnerEnforced`) y los permisos se controlan solo con políticas de IAM |

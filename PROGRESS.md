@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
 **Fase actual:** Fase 7 · Agente text-to-SQL, en curso (2026-10-22)
-**Siguiente paso:** 7.4 · ampliar el techo `marketpulse-boundary` en `cicd` (lo aplica Alberto a mano). Pendiente en paralelo: comprobar la ejecución programada del 2026-10-23 (06:00 UTC), la primera con el techo en el rol del Scheduler
+**Siguiente paso:** fusionar el PR de `fase7/techo-agente` (CodeBuild redespliega las Lambdas con la huella `7jU2…`) y después 7.5 · rol `marketpulse-agent`. Pendiente en paralelo: comprobar la ejecución programada del 2026-10-23 (06:00 UTC), la primera con el techo en el rol del Scheduler
 
 ## Cómo se trabaja ahora (traspaso para la Fase 7)
 
@@ -505,6 +505,16 @@ Plantilla para cada fase (se rellena al trabajarla):
   - `agent/usage.py`: `TokenUsage.add(response.usage)` con precio por llamada (tarifa larga de Haiku por encima de 100.000 tokens) y `UnknownModelError` si falta un precio.
   - `logs/` añadido a `.gitignore`.
   - Evidencia: `tests/test_usage.py` → 8 passed (p. ej., 10.000 de entrada + 1.000 de salida con Haiku = **0,0015 USD**) · `tests/test_audit.py` → 11 passed (un ataque con `\n` sigue siendo **1 línea**; 8 hilos × 25 = **200 líneas JSON válidas**) · `pytest` → `215 passed` · ruff y formato correctos · `git check-ignore -v logs/agent_audit.jsonl` → `.gitignore:31:logs/`.
+- Despliegue de los pasos 7.1-7.3: PR #8 (`fase7/base-agente`), CI ✅ y fusionado por Alberto (`e457e96`). CodeBuild, *build* 6 (`GitHub-Hookshot`) → **SUCCEEDED**: `INSTALL` 23 s (`.[dev,agent]` en Linux arm64), `215 passed`, ruff correcto.
+  - **Cambio no esperado:** `Plan: 0 to add, 2 to change, 0 to destroy`, con una huella nueva del zip, `M3kr3uE4…` (antes `7jU2NQ15…`). La guardia lo dejó pasar (no borra ni reemplaza) → `Apply complete! 0 added, 2 changed`.
+  - **Causa (comprobada):** `build_lambda.py` empaqueta el paquete `marketpulse` entero, y desde el 7.2 incluye `marketpulse/agent/` (4 ficheros `.py`). En el 7.1 se dijo que el zip no cambiaba, y era verdad entonces, porque aún no existía `agent/`; la descripción del PR repitió esa afirmación sin volver a comprobarla. **Lección: comprobar la huella del zip justo antes de abrir el PR, no un paso antes.**
+  - Comprobaciones: el zip construido en Windows da la **misma huella `M3kr…`** que el de CodeBuild (sigue siendo reproducible) · `zipfile` → `marketpulse/agent/{__init__,audit,guard,usage}.py` · `get-function` → las 2 Lambdas con `CodeSha256 M3kr…`, `Active` y `Successful`.
+  - Impacto: nulo en el funcionamiento. Los *handlers* no importan `agent`, y `sqlglot` no está en el zip (si alguien lo importara, fallaría). Lo comprobará la ejecución programada del 2026-10-23. **Propuesta:** excluir `marketpulse/agent/` del zip de Lambda (código que no se usa ahí). Aprobada por Alberto.
+- Arreglo del zip (rama `fase7/techo-agente`): `NOT_FOR_LAMBDA = {"agent"}` en `build_lambda.py` (no se empaqueta, y `verify_zip` falla si aparece) + test `test_el_agente_no_va_al_zip_de_lambda`. Evidencia: `build_lambda.py` → **`7jU2NQ15…`, la huella de antes del 7.2**, 194 ficheros · `pytest` → `216 passed`. CodeBuild volverá a desplegar las Lambdas al fusionar (`M3kr…` → `7jU2…`).
+- Paso 7.4 — Ampliar el techo (D-032), en `modules/cicd/boundary.tf`: `LeerElCatalogo` (Glue de solo lectura en catálogo, base y tablas `marketpulse`), `ConsultarConAthena` (5 acciones en el *workgroup* `marketpulse`), `ResultadosDeAthena` (`athena-results/*`) y `s3:GetBucketLocation`. Ningún `"*"` ni ninguna acción de Glue de escritura.
+  - `fmt -check` y `validate` correctos. `plan` completo → `0 to add, 3 to change, 0 to destroy` (el techo *in-place* + las 2 Lambdas, `M3kr…` → `7jU2…`). `plan -target=module.cicd.aws_iam_policy.workload_boundary -out=tfplan` → **`1 to change`**, solo el techo, *in-place*.
+  - `terraform apply tfplan` ejecutado por Alberto → `Modifications complete after 2s`, `Apply complete! Resources: 0 added, 1 changed, 0 destroyed`, con el aviso esperado de `-target` (un `cd infra` sobrante falló sin consecuencias: ya estaba en `infra`).
+  - Evidencia (solo lectura): `get-policy` → versión por defecto **`v2`** · `get-policy-version` → **9 sentencias** (las 6 de antes + `LeerElCatalogo` con 6 acciones, `ConsultarConAthena` con 5 y `ResultadosDeAthena` con 4) y **0 apariciones de `"*"`** · los 3 roles siguen con `PermissionsBoundaryArn` = `marketpulse-boundary` · `plan` completo → solo las 2 Lambdas (`0 to add, 2 to change, 0 to destroy`), que desplegará CodeBuild al fusionar.
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista
