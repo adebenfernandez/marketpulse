@@ -5,6 +5,7 @@
 #   analytics  -> Glue Data Catalog, workgroup de Athena y vistas SQL
 #   monitoring -> tema SNS de alertas, presupuesto y alarmas de CloudWatch
 #   cicd       -> despliegue continuo: conexión con GitHub y CodeBuild (Fase 6, D-027)
+#   agent      -> rol de solo lectura del agente text-to-SQL (Fase 7, D-033)
 #
 # Cada módulo recibe lo que necesita por variables y devuelve lo que otros usan por outputs.
 # Los recursos se trajeron aquí desde los ficheros sueltos de infra/ con bloques moved (moved.tf).
@@ -70,4 +71,19 @@ module "cicd" {
 
   alert_email           = var.alert_email
   github_repository_url = "https://github.com/adebenfernandez/marketpulse.git"
+}
+
+module "agent" {
+  source     = "./modules/agent"
+  project    = var.project
+  account_id = local.account_id
+  region     = local.region
+
+  bucket_arn            = module.storage.bucket_arn
+  athena_results_prefix = module.storage.athena_results_prefix
+  athena_workgroup      = module.analytics.athena_workgroup
+
+  permissions_boundary_arn = module.cicd.workload_boundary_arn # techo de su rol (D-028, D-032)
+  # El rol de administración con el que entra Alberto (aws login). Lleva la ruta /managed/ en el ARN
+  trusted_principal_arn = "arn:aws:iam::${local.account_id}:role/${var.agent_trusted_role}"
 }

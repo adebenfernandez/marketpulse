@@ -694,3 +694,34 @@ Fuentes: [Pricing](https://platform.claude.com/docs/en/about-claude/pricing) · 
 - **Un techo aparte solo para el agente:** el *deployer* solo admite `marketpulse-boundary` en su condición. Habría que cambiar también la política del *deployer* (más cambios a mano) para ganar poco.
 - **Crear el rol del agente a mano, fuera de CodeBuild:** rompería la regla "todo lo que no es `cicd` pasa por PR + CodeBuild" (decisión de Alberto en el plan de la fase).
 - **`plan` sin `-target`:** desplegaría las Lambdas desde Windows. El zip es idéntico, pero el cambio debe llegar por el *pipeline*.
+
+---
+
+## D-033 · Rol `marketpulse-agent`: solo lectura, asumible solo por el rol de Alberto y desplegado por CodeBuild
+**Fecha:** 2026-10-22 · **Fase:** 7
+
+**Contexto:** el agente se ejecuta en local, dentro de Docker, y necesita credenciales de AWS para Athena. No hay usuarios de IAM ni OIDC (D-001, D-027) y las claves permanentes están prohibidas. Alberto entra con `aws login`, que da el rol `managed/AccountFullAccessRole` (administración, 12 h). Ese rol no debe entrar en el contenedor.
+
+**Decisión:**
+- **Módulo nuevo `infra/modules/agent`** (el agente es otra responsabilidad que `analytics`). Contiene el rol `marketpulse-agent` y la política en línea `leer-datos-marketpulse`.
+- **Confianza:** `sts:AssumeRole` solo para el ARN del rol de Alberto (`var.agent_trusted_role`, por defecto `managed/AccountFullAccessRole`, con su ruta `/managed/`), no para toda la cuenta.
+- **`max_session_duration = 3600`:** al encadenar roles, AWS limita la sesión a 1 h aunque el rol admita más. Se declara 1 h para que el código diga la verdad.
+- **Techo:** `permissions_boundary` = `marketpulse-boundary`, obligatorio para que lo cree el *deployer* (D-028), ampliado en D-032.
+- **Permisos** (ningún `"*"`):
+  - `glue:GetDatabase`, `GetTable` y `GetTables` sobre el catálogo, la base y `table/marketpulse/*`. Sin acciones de particiones: con *projection* no deberían hacer falta, y si la prueba real lo pide, se añaden.
+  - Las 4 llamadas de `run_query` (`StartQueryExecution`, `GetQueryExecution`, `GetQueryResults` y `StopQueryExecution`), solo en el *workgroup* `marketpulse`.
+  - `s3:GetBucketLocation` y `s3:ListBucket`, este último con `s3:prefix` limitado a `gold/*` y `athena-results/*`.
+  - `s3:GetObject` en `gold/*`.
+  - `GetObject`, `PutObject` y subidas *multipart* en `athena-results/*`.
+  - **Sin acceso a `bronze/` ni a `silver/`, sin SSM y sin ninguna acción que escriba en Glue.**
+- **Lo despliega CodeBuild** (PR → *merge*), no Alberto a mano. Así todo lo que no es `cicd` pasa por la guardia del *plan*. El *deployer* ya puede crear roles `marketpulse-*` con el techo.
+
+**Cómo llegan las credenciales al contenedor (se implementa en el 7.9):** `aws sts assume-role --role-arn <agent_role_arn>` desde la sesión de `aws login` → credenciales de 1 h → `docker run -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION`. Con `-e NOMBRE` sin valor, Docker copia la variable del proceso, sin escribirla en disco ni mostrarla.
+
+**Alternativas descartadas:**
+- **Montar `~/.aws` en el contenedor:** le daría el rol de administración y necesitaría `botocore[crt]`.
+- **Un usuario de IAM con claves:** son permanentes y están prohibidas.
+- **IAM Roles Anywhere:** hace falta una infraestructura de certificados (PKI), demasiado para este proyecto.
+- **Confiar en toda la cuenta (`:root`):** cualquier rol de la cuenta con `sts:AssumeRole` podría ponérselo, incluido el *deployer* si alguien se lo permitiera.
+
+**Verificación prevista (después del *merge*):** `plan` local → `2 to add` (el rol y su política). Después: `assume-role` real, un `SELECT` correcto con el rol, un `DROP TABLE` y un `CREATE TABLE AS` lanzados **directamente** a Athena con el rol (saltándose el validador) que tienen que fallar por permisos, y la lectura de `silver/` denegada.
