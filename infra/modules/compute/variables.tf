@@ -32,3 +32,8 @@ variable "lambda_zip_path" {
   description = "Ruta del zip de las Lambdas (python scripts/build_lambda.py)"
   type        = string
 }
+
+variable "permissions_boundary_arn" {
+  description = "Permissions boundary (techo) de los roles de las Lambdas y del Scheduler (D-028)"
+  type        = string
+}

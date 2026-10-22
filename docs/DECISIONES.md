@@ -549,3 +549,20 @@ Fuente: [Terraform · Refactoring modules](https://developer.hashicorp.com/terra
 - **Permisos de la app *AWS Connector for GitHub*** (comprobados en el paso 6.4): lectura y **escritura** de *administration*, *code*, *commit statuses*, *pull requests* y *repository hooks*. Son fijos y no se pueden recortar al instalarla. Alberto acepta este riesgo (opción A) frente a un *token* de grano fino con permisos mínimos que habría que guardar y rotar. Mitigaciones: la app está instalada solo en `marketpulse`, y solo el rol de CodeBuild (además del rol de administración de Alberto) puede usar la conexión, por ARN.
 
 Fuentes: [Managed policies for your organization](https://docs.aws.amazon.com/accounts/latest/reference/scps-and-rcps-for-projects.html) · [CodeBuild pricing](https://aws.amazon.com/codebuild/pricing/) · [CodeBuild available runtimes](https://docs.aws.amazon.com/codebuild/latest/userguide/available-runtimes.html) · [CodeBuild GitHub App connections](https://docs.aws.amazon.com/codebuild/latest/userguide/connections-github-app.html) · [CodeConnections endpoints](https://docs.aws.amazon.com/general/latest/gr/codestar_connections.html) · [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+
+---
+
+## D-028 · Rol de despliegue con *permissions boundary* y `Deny` explícitos (administración delegada)
+**Fecha:** 2026-10-22 · **Fase:** 6
+
+**Contexto:** CodeBuild desplegará con `terraform apply`, así que su rol tiene que poder crear y modificar roles de IAM, Lambdas, etc. Acotar por ARN (`marketpulse-*`) no basta. Con `iam:PutRolePolicy` sobre el rol de una Lambda y `lambda:UpdateFunctionCode`, el *deployer* podría darle permisos de administrador a la Lambda y ejecutar su propio código con ellos (**escalada de privilegios**).
+
+**Opciones:** (A) *permissions boundary* + `Deny` explícitos · (B) solo ARN `marketpulse-*`, aceptando el riesgo.
+
+**Decisión (aprobada por Alberto):** A.
+- **`marketpulse-boundary`** (módulo `cicd`): el techo de los roles de la carga de trabajo. Cubre exactamente lo que hacen hoy las 2 Lambdas y el Scheduler. Aplicado a los 3 roles (6.5a).
+- **El *deployer*** (6.5b) solo puede crear o modificar roles `marketpulse-*` con la condición `iam:PermissionsBoundary = marketpulse-boundary`. Esa condición la admiten `CreateRole`, `PutRolePolicy`, `DeleteRolePolicy`, `Attach/DetachRolePolicy`, `UpdateAssumeRolePolicy`, `UpdateRole`, `DeleteRole`, `PutRolePermissionsBoundary` y `PassRole` (referencia de autorización de IAM, consultada el 2026-10-22).
+- **`Deny` explícitos:** el *deployer* no puede modificar su propio rol, ni la política del techo, ni quitar techos (`DeleteRolePermissionsBoundary`), ni modificar el proyecto de CodeBuild ni la conexión.
+- **Consecuencia:** los cambios del módulo `cicd` los aplica Alberto a mano. Si llegan por un PR, el despliegue automático falla con `AccessDenied`, a propósito.
+
+**Comprobado (6.5a):** simulador de IAM e invocación real de las 2 Lambdas sin ningún `AccessDenied`.

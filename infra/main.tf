@@ -45,6 +45,8 @@ module "compute" {
   bucket_arn        = module.storage.bucket_arn
   alertas_topic_arn = module.monitoring.alertas_topic_arn
   lambda_zip_path   = "${path.root}/../build/lambda.zip" # generado con scripts/build_lambda.py
+
+  permissions_boundary_arn = module.cicd.workload_boundary_arn # techo de sus roles (D-028)
 }
 
 module "analytics" {
@@ -57,6 +59,11 @@ module "analytics" {
 }
 
 module "cicd" {
-  source  = "./modules/cicd"
-  project = var.project
+  source     = "./modules/cicd"
+  project    = var.project
+  account_id = local.account_id
+  region     = local.region
+
+  bucket_arn        = module.storage.bucket_arn
+  alertas_topic_arn = module.monitoring.alertas_topic_arn
 }
