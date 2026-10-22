@@ -41,8 +41,8 @@ jobs:
           cache: pip # reutiliza los paquetes descargados entre ejecuciones
           cache-dependency-path: pyproject.toml
 
-      - name: Instalar el proyecto y las herramientas de desarrollo
-        run: pip install -e ".[dev]"
+      - name: Instalar el proyecto, el agente y las herramientas de desarrollo
+        run: pip install -e ".[dev,agent]" # agent: los tests del validador de SQL usan sqlglot
 
       - name: Linter (ruff check)
         run: ruff check .

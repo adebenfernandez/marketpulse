@@ -27,6 +27,9 @@ tfplan
 # --- Datos descargados (se regeneran con la ingesta) ---
 data/
 
+# --- Registro de auditoría del agente (preguntas de usuarios, SQL y costes: no va a Git) ---
+logs/
+
 # --- Python ---
 __pycache__/
 *.py[cod]
