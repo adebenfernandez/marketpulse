@@ -548,6 +548,11 @@ Fuente: [Terraform · Refactoring modules](https://developer.hashicorp.com/terra
 - Terraform se descarga en cada *build* desde `releases.hashicorp.com`, con verificación SHA-256.
 - **Permisos de la app *AWS Connector for GitHub*** (comprobados en el paso 6.4): lectura y **escritura** de *administration*, *code*, *commit statuses*, *pull requests* y *repository hooks*. Son fijos y no se pueden recortar al instalarla. Alberto acepta este riesgo (opción A) frente a un *token* de grano fino con permisos mínimos que habría que guardar y rotar. Mitigaciones: la app está instalada solo en `marketpulse`, y solo el rol de CodeBuild (además del rol de administración de Alberto) puede usar la conexión, por ARN.
 
+**Actualización (2026-10-22, paso 6.7):**
+- **El *pipeline* funciona.** El *webhook* (`GitHub-Hookshot`) lanzó los 4 *builds*. Fallaron el 1 (`Invalid cross-device link` al construir el zip: `/tmp` es otro disco en CodeBuild) y el 2 (`ssm:DescribeParameters`), sin cambiar nada en AWS. El 3 desplegó (`2 changed`) y el 4 dio `No changes`.
+- **Riesgo del zip entre sistemas, resuelto:** había tres diferencias (CRLF, la versión de `certifi` según el venv y `create_system` del zip). Ahora el zip es reproducible: `config/lambda-requirements.txt`, normalización a LF y `create_system = 3`. La misma huella en Windows y en CodeBuild.
+- **Protección de `main`:** GitHub no la aplica en repositorios privados del plan Free. La regla está creada y se activará en la Fase 8; mientras tanto, CodeBuild repite ruff y pytest.
+
 Fuentes: [Managed policies for your organization](https://docs.aws.amazon.com/accounts/latest/reference/scps-and-rcps-for-projects.html) · [CodeBuild pricing](https://aws.amazon.com/codebuild/pricing/) · [CodeBuild available runtimes](https://docs.aws.amazon.com/codebuild/latest/userguide/available-runtimes.html) · [CodeBuild GitHub App connections](https://docs.aws.amazon.com/codebuild/latest/userguide/connections-github-app.html) · [CodeConnections endpoints](https://docs.aws.amazon.com/general/latest/gr/codestar_connections.html) · [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
 
 ---
@@ -566,3 +571,10 @@ Fuentes: [Managed policies for your organization](https://docs.aws.amazon.com/ac
 - **Consecuencia:** los cambios del módulo `cicd` los aplica Alberto a mano. Si llegan por un PR, el despliegue automático falla con `AccessDenied`, a propósito.
 
 **Comprobado (6.5a):** simulador de IAM e invocación real de las 2 Lambdas sin ningún `AccessDenied`.
+
+**Actualización (2026-10-22, pasos 6.5b a 6.7):**
+- **El rol `marketpulse-deployer`:** política en línea de 8,4 KB (límite de 10.240 caracteres), con 11 bloques `Allow` por ARN y 7 `Deny`. A los 5 iniciales se suman `NoSilenciarAlertas` (el parámetro del email) y `NoBorrarSusLogs` (los logs de CodeBuild). Simulador: 19 de 19 casos como se esperaba (*allowed*, `explicitDeny` en la escalada e `implicitDeny` en lo ajeno).
+- **Los dos prefijos de la conexión:** CodeBuild valida la conexión asumiendo el rol con la acción **antigua** `codestar-connections:GetConnection` sobre el ARN **nuevo** `arn:aws:codeconnections:…`. El `Allow` y la excepción del `Deny` usan la misma lista con los 2 prefijos y los 2 formatos de ARN (lo confirmó CloudTrail).
+- **Excepción aprobada por Alberto:** `ssm:DescribeParameters` sobre `arn:aws:ssm:eu-north-1:<cuenta>:*`. Terraform la necesita para leer los metadatos de los parámetros, y AWS no admite acotarla por nombre. Es de solo lectura, y los valores siguen limitados a `/marketpulse/*`. Es la **única** excepción al "sin `*` en recursos".
+- **Comprobado en real:** 4 *builds* de CodeBuild. El 3 aplicó el cambio de código de las Lambdas y el 4 terminó en `No changes`, sin ningún `AccessDenied`.
+

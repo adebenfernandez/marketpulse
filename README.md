@@ -86,11 +86,18 @@ terraform apply tfplan
 cd ..
 ```
 
-Se crean los cuatro módulos:
+Se crean los cinco módulos:
 - `storage`: el data lake en S3.
 - `compute`: las Lambdas, IAM, SSM, los logs y la programación diaria.
 - `analytics`: Glue, Athena y las vistas.
 - `monitoring`: SNS, el presupuesto de 5 USD con alertas al 50/80/100 % y las alarmas.
+- `cicd`: la conexión con GitHub, el techo de permisos (*boundary*), el rol de despliegue y el
+  proyecto de CodeBuild con su *webhook* (D-027, D-028).
+
+**La primera vez, este `apply` falla en el proyecto de CodeBuild** (`User is not authorized to
+access connection`): la conexión con GitHub nace en `PENDING` y no se puede usar hasta autorizarla.
+Haz el paso 7.4 y repite `terraform plan -out=tfplan` y `terraform apply tfplan`. Si usas un *fork*,
+cambia antes `github_repository_url` en `infra/main.tf`.
 
 ### 7. Pasos que no hace Terraform (a propósito)
 
@@ -113,6 +120,10 @@ Se crean los cuatro módulos:
 3. **Apuntar el código local al bucket nuevo.** En `.env`, pon en `MARKETPULSE_BUCKET` el valor de
    `terraform -chdir=infra output -raw datalake_bucket_name` (lo usan la carga histórica y la
    subida manual a S3).
+4. **Autorizar la conexión con GitHub.** En la consola de AWS → *Developer Tools* → *Connections*
+   (región `eu-north-1`) → `marketpulse-github` → *Update pending connection*. Autoriza e instala
+   la app *AWS Connector for GitHub* con **"Only select repositories"** → este repositorio. El
+   estado pasa a `AVAILABLE` (`terraform output github_connection_status`).
 
 ### 8. Primera ejecución y comprobación
 
@@ -126,7 +137,26 @@ cd infra; terraform plan; cd ..          # esperado: "No changes"
 A partir de aquí, EventBridge Scheduler ejecuta la ingesta a las 06:00 UTC y la transformación a
 las 06:30 UTC todos los días.
 
-### Desmontar
+## Despliegue continuo (después del primer despliegue)
+
+Ya no se despliega desde el portátil. El flujo normal es:
+
+1. Rama → *pull request* hacia `main` → **GitHub Actions** (`.github/workflows/ci.yml`) ejecuta
+   ruff, pytest y `terraform fmt`/`validate`, sin credenciales de AWS.
+2. *Merge* a `main` → el *webhook* lanza **CodeBuild** (`buildspec.yml`) con el rol
+   `marketpulse-deployer`: repite ruff y pytest, construye el zip, hace `terraform plan`, pasa la
+   **guardia** (`scripts/check_plan.py`, que para si algo se borra o se reemplaza) y aplica.
+   Logs: `/aws/codebuild/marketpulse-deploy` (14 días).
+
+Excepciones, a propósito:
+- **Cambios en `infra/modules/cicd/`** (el rol de despliegue, el techo, CodeBuild o la conexión):
+  el *deployer* tiene prohibido tocarlos, así que se aplican **a mano** antes de fusionar.
+- **Si la guardia para el despliegue**, revisa el *plan* y, si el borrado es intencionado,
+  aplícalo a mano.
+- **Si cambias las dependencias** en `pyproject.toml`, regenera el bloqueo de la Lambda con
+  `python scripts/build_lambda.py --update-lock` (un test lo exige).
+
+## Desmontar
 
 `terraform destroy` en `infra/` borra todo menos el bucket del data lake si tiene datos
 (`force_destroy = false`): primero hay que vaciarlo. El bucket del *state* (`infra/bootstrap/`) va
