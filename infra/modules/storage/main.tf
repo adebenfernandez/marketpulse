@@ -80,3 +80,36 @@ resource "aws_s3_bucket_policy" "datalake" {
   # acceso público. Forzamos el orden: primero el bloqueo, después la política.
   depends_on = [aws_s3_bucket_public_access_block.datalake]
 }
+
+# --- 5) Ciclo de vida: borrar los resultados de Athena a los 7 días ---
+# Cada consulta de Athena deja su resultado (un CSV) en athena-results/. Son copias que se pueden
+# regenerar volviendo a consultar, así que se borran a los 7 días (regla de costes de CLAUDE.md).
+
+locals {
+  athena_results_prefix = "athena-results/" # el módulo analytics lo recibe por output
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "datalake" {
+  bucket = aws_s3_bucket.datalake.id
+
+  # OJO: esta configuración es la ÚNICA del bucket (S3 admite una sola). Si más adelante hace falta
+  # otra regla (p. ej. para bronze), se añade aquí como otro bloque "rule"
+  rule {
+    id     = "borrar-resultados-athena"
+    status = "Enabled"
+
+    filter {
+      prefix = local.athena_results_prefix # solo los resultados: bronze, silver y gold NO se tocan
+    }
+
+    expiration {
+      days = 7
+    }
+
+    # Las consultas fallidas o canceladas pueden dejar subidas "multiparte" a medias, que ocupan
+    # espacio (y se cobran) sin verse como objetos. AWS recomienda abortarlas con esta regla
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}

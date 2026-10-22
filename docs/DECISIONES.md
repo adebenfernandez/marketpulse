@@ -478,3 +478,32 @@ Solución: generar *timestamps* y convertirlos a `date` en una subconsulta, ante
 **Comprobado:** la migración copió los mismos recursos y *outputs* (el *state* remoto empieza con *serial* 1 y otro *lineage*); el `plan` dice `No changes`; y con dos `plan` a la vez, el segundo falla con `Error acquiring the state lock` (S3 412 *PreconditionFailed*).
 
 Fuente: [Terraform · Backend type: s3](https://developer.hashicorp.com/terraform/language/backend/s3)
+
+---
+
+## D-026 · `infra/` en cuatro módulos, movidos con bloques `moved`
+**Fecha:** 2026-10-22 · **Fase:** 5
+
+**Contexto:** el informe pide organizar `infra/` en módulos (storage, compute, analytics, monitoring) sin destruir ni recrear recursos.
+
+**Decisión:**
+- **Reparto:**
+  - `storage`: el bucket del data lake con sus protecciones y su ciclo de vida.
+  - `compute`: SSM, logs, IAM de las Lambdas, Lambdas y Scheduler.
+  - `analytics`: Glue, *workgroup* de Athena y vistas.
+  - `monitoring`: SNS, presupuesto y alarmas.
+- **El raíz** solo lee la cuenta y la región y conecta los módulos (`main.tf`). Mantiene los mismos *outputs* que antes.
+- **`moved.tf`** con 26 bloques (33 instancias). Se conservan después del `apply`: no hacen nada, no molestan en un despliegue desde cero y la documentación de Terraform recomienda guardarlos como historial.
+- **Valores entre módulos construidos de antemano** (ARN del tema y nombres de las Lambdas) para que se conozcan en el `plan`. Evita dependencias circulares y los cambios falsos *known after apply* (pasos 5.2 y 5.5).
+- **El ciclo de vida de `athena-results/` va en `storage`:** S3 admite una sola configuración de ciclo de vida por bucket, así que no puede repartirse entre dos módulos.
+- **Las rutas** se pasan desde el raíz con `path.root`: dentro de un módulo, `path.module` apunta a otra carpeta.
+- **`versions.tf` de cada módulo** solo indica `source = "hashicorp/aws"`. La versión la fija el raíz.
+
+**Alternativas descartadas:**
+- **`terraform state mv`:** cambia el *state* sin *plan* ni revisión y no queda en el código.
+- **Un módulo por servicio (S3, Lambda, IAM…):** separa cosas que cambian juntas, como una Lambda y su rol.
+- **Módulos publicados o de terceros:** serían una dependencia nueva.
+
+**Comprobado:** `plan` → 33 `has moved to` y `0 to add, 0 to change, 0 to destroy`; después del `apply`, `state list` con direcciones `module.` y `plan` → `No changes`.
+
+Fuente: [Terraform · Refactoring modules](https://developer.hashicorp.com/terraform/language/modules/develop/refactoring)

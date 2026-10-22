@@ -6,15 +6,12 @@
 # Un rol por función: la ingesta no puede tocar silver/gold y la transformación no puede leer las
 # claves de API. Mínimo privilegio: ningún "Resource": "*"; todo apunta a ARN concretos.
 
-# Datos de la cuenta y la región actuales, para construir los ARN sin escribir el número de cuenta
-# en el código (el repositorio será público)
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
-
+# La cuenta y la región llegan como variables (las calcula el módulo raíz): así se construyen los
+# ARN sin escribir el número de cuenta en el código (el repositorio será público)
 locals {
-  account_id = data.aws_caller_identity.current.account_id
-  region     = data.aws_region.current.region
-  bucket_arn = aws_s3_bucket.datalake.arn
+  account_id = var.account_id
+  region     = var.region
+  bucket_arn = var.bucket_arn
 }
 
 # --- 1. Política de confianza (la misma para las dos funciones) ---
@@ -83,7 +80,7 @@ data "aws_iam_policy_document" "ingest" {
     sid       = "AvisarDeFallos"
     effect    = "Allow"
     actions   = ["sns:Publish"] # destino de fallo de la invocación asíncrona (lambda.tf)
-    resources = [local.alertas_topic_arn]
+    resources = [var.alertas_topic_arn]
   }
 }
 
@@ -136,7 +133,7 @@ data "aws_iam_policy_document" "transform" {
     sid       = "AvisarDeFallos"
     effect    = "Allow"
     actions   = ["sns:Publish"] # destino de fallo de la invocación asíncrona (lambda.tf)
-    resources = [local.alertas_topic_arn]
+    resources = [var.alertas_topic_arn]
   }
 }
 

@@ -5,7 +5,7 @@
 # invocación asíncrona, y su mensaje trae el error concreto.
 
 resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
-  for_each = local.lambda_functions
+  for_each = var.lambda_function_names
 
   alarm_name        = "${each.value}-errores"
   alarm_description = "La Lambda ${each.value} ha terminado con error (excepcion o timeout). Ver sus logs en CloudWatch."

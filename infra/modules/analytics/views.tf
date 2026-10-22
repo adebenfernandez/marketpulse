@@ -6,7 +6,7 @@
 # triggers_replace. REQUISITO: ejecutar terraform con el venv activado (usa `python`).
 
 locals {
-  views_dir  = "${path.module}/../sql/views"
+  views_dir  = "${var.project_root}/sql/views"
   view_files = sort(fileset(local.views_dir, "*.sql"))
 }
 
@@ -20,6 +20,6 @@ resource "terraform_data" "athena_views" {
 
   provisioner "local-exec" {
     command     = "python -m marketpulse.common.athena --deploy-views sql/views"
-    working_dir = "${path.module}/.." # la raíz del proyecto
+    working_dir = var.project_root # la raíz del proyecto (el comando usa rutas relativas)
   }
 }

@@ -1,7 +1,7 @@
 # Presupuesto mensual de MarketPulse: 5 USD con avisos al 50, 80 y 100 % del gasto REAL.
 #
 # Se creó A MANO en la Fase 0 (D-004, D-005) y se trajo a Terraform en la Fase 5 con un bloque
-# import (imports.tf). Al importarlo, el inventario del paso 5.1 encontró dos diferencias con lo
+# import (imports.tf, ya borrado). Al importarlo, el inventario del paso 5.1 encontró dos diferencias con lo
 # que se había decidido, que este código CORRIGE (el plan las muestra como cambios):
 #   1. Faltaba la alerta del 100 %.
 #   2. No había filtro: los créditos (100 USD del plan gratuito) se restaban del gasto, así que el
@@ -22,7 +22,7 @@ resource "aws_budgets_budget" "mensual" {
   # Sobre qué "vista de facturación" se mide: la principal de la cuenta (la que asignó la consola).
   # Se escribe para que el plan no proponga quitarla (la importación la trae y, si no está en el
   # código, Terraform querría dejarla a null)
-  billing_view_arn = "arn:aws:billing::${local.account_id}:billingview/primary"
+  billing_view_arn = "arn:aws:billing::${var.account_id}:billingview/primary"
 
   # Qué gasto cuenta: TODO menos los créditos (D-005). Con la API actual de Budgets, un presupuesto
   # con "metrics" se filtra con filter_expression (el antiguo bloque cost_types no se puede usar a

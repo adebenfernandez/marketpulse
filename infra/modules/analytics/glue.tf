@@ -33,7 +33,7 @@ resource "aws_glue_catalog_table" "daily_prices" {
   }
 
   storage_descriptor {
-    location      = "s3://${aws_s3_bucket.datalake.bucket}/gold/daily_prices/"
+    location      = "s3://${var.bucket_name}/gold/daily_prices/"
     input_format  = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
     output_format = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
 
@@ -94,7 +94,7 @@ resource "aws_glue_catalog_table" "dim_asset" {
   }
 
   storage_descriptor {
-    location      = "s3://${aws_s3_bucket.datalake.bucket}/gold/dim_asset/"
+    location      = "s3://${var.bucket_name}/gold/dim_asset/"
     input_format  = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
     output_format = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
 

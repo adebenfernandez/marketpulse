@@ -2,7 +2,7 @@
 # `python scripts/build_lambda.py`) y cambian el handler, la memoria y la configuración.
 
 locals {
-  lambda_zip = "${path.module}/../build/lambda.zip"
+  lambda_zip = var.lambda_zip_path
 
   # Capa gestionada AWS SDK for pandas 3.17.1 para Python 3.13 en arm64 (paso 3.1, D-020)
   pandas_layer_arn = "arn:aws:lambda:${local.region}:336392948345:layer:AWSSDKPandas-Python313-Arm64:16"
@@ -53,7 +53,7 @@ resource "aws_lambda_function" "this" {
   environment {
     variables = merge(
       {
-        MARKETPULSE_BUCKET = aws_s3_bucket.datalake.bucket # nombre del bucket (no es secreto)
+        MARKETPULSE_BUCKET = var.bucket_name # nombre del bucket (no es secreto)
         LOG_LEVEL          = "INFO"
       },
       each.value.environment, # solo NOMBRES de parámetros de SSM, nunca los valores
@@ -85,7 +85,7 @@ resource "aws_lambda_function_event_invoke_config" "this" {
   # Hace el papel de la "dead-letter queue" sin necesitar SQS
   destination_config {
     on_failure {
-      destination = aws_sns_topic.alertas.arn
+      destination = var.alertas_topic_arn
     }
   }
 

@@ -1,37 +1,8 @@
 # Athena: dónde guarda los resultados y con qué límites se ejecutan las consultas.
 #
-# Cada consulta de Athena escribe su resultado (un CSV) y sus metadatos en S3. Los guardamos en el
-# mismo bucket, bajo el prefijo athena-results/, y una regla de ciclo de vida los borra a los
-# 7 días (regla de costes de CLAUDE.md): son copias que se pueden regenerar volviendo a consultar.
-
-locals {
-  athena_results_prefix = "athena-results/"
-}
-
-resource "aws_s3_bucket_lifecycle_configuration" "datalake" {
-  bucket = aws_s3_bucket.datalake.id
-
-  # OJO: esta configuración es la ÚNICA del bucket (S3 admite una sola). Si más adelante hace falta
-  # otra regla (p. ej. para bronze), se añade aquí como otro bloque "rule"
-  rule {
-    id     = "borrar-resultados-athena"
-    status = "Enabled"
-
-    filter {
-      prefix = local.athena_results_prefix # solo los resultados: bronze, silver y gold NO se tocan
-    }
-
-    expiration {
-      days = 7
-    }
-
-    # Las consultas fallidas o canceladas pueden dejar subidas "multiparte" a medias, que ocupan
-    # espacio (y se cobran) sin verse como objetos. AWS recomienda abortarlas con esta regla
-    abort_incomplete_multipart_upload {
-      days_after_initiation = 1
-    }
-  }
-}
+# Cada consulta de Athena escribe su resultado (un CSV) y sus metadatos en S3, en el bucket del data
+# lake bajo var.athena_results_prefix. La regla que los borra a los 7 días es del bucket, así que
+# vive en el módulo storage (S3 admite UNA sola configuración de ciclo de vida por bucket).
 
 resource "aws_athena_workgroup" "marketpulse" {
   name        = var.project
@@ -56,7 +27,7 @@ resource "aws_athena_workgroup" "marketpulse" {
     }
 
     result_configuration {
-      output_location = "s3://${aws_s3_bucket.datalake.bucket}/${local.athena_results_prefix}"
+      output_location = "s3://${var.bucket_name}/${var.athena_results_prefix}"
 
       encryption_configuration {
         encryption_option = "SSE_S3" # resultados cifrados, igual que el resto del bucket

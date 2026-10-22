@@ -2,13 +2,13 @@
 # del destino on-failure de las Lambdas, y los reenvía por email.
 #
 # Se creó A MANO en la Fase 0 (D-004) y se trajo a Terraform en la Fase 5 con bloques import
-# (imports.tf): el código describe exactamente lo que ya existía, para que el plan no cambie nada.
+# (imports.tf, ya borrado): el código describe exactamente lo que ya existía, para que el plan no cambie nada.
 
 locals {
   # ARN del tema CONSTRUIDO con datos ya conocidos. Las políticas lo usan en lugar de
   # aws_sns_topic.alertas.arn por el mismo motivo que en scheduler.tf (paso 5.2): si el tema tiene
   # cambios pendientes (p. ej. una etiqueta), las políticas que lo leen saldrían como cambio falso
-  alertas_topic_arn = "arn:aws:sns:${local.region}:${local.account_id}:${var.project}-alertas"
+  alertas_topic_arn = "arn:aws:sns:${var.region}:${var.account_id}:${var.project}-alertas"
 }
 
 resource "aws_sns_topic" "alertas" {
@@ -53,7 +53,7 @@ data "aws_iam_policy_document" "alertas" {
     condition {
       test     = "StringEquals"
       variable = "AWS:SourceOwner" # ...el dueño del origen es esta cuenta
-      values   = [local.account_id]
+      values   = [var.account_id]
     }
   }
 
@@ -73,13 +73,13 @@ data "aws_iam_policy_document" "alertas" {
     condition {
       test     = "StringEquals"
       variable = "aws:SourceAccount"
-      values   = [local.account_id]
+      values   = [var.account_id]
     }
 
     condition {
       test     = "ArnLike"
       variable = "aws:SourceArn"
-      values   = ["arn:aws:budgets::${local.account_id}:*"] # Budgets es global: ARN sin región
+      values   = ["arn:aws:budgets::${var.account_id}:*"] # Budgets es global: ARN sin región
     }
   }
 }
