@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 6 · CI/CD (en curso desde 2026-10-22)
-**Siguiente paso:** Fase 6, paso 6.2 (revisión de secretos en el historial y primer `git push`, con permiso de Alberto)
+**Fase actual:** Fase 6 terminada (2026-10-22)
+**Siguiente paso:** comprobar la ejecución programada del 2026-10-23 (06:00 UTC) con el techo en el rol del Scheduler; después, Fase 7 · Agente text-to-SQL
 
 Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 
@@ -13,7 +13,7 @@ Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 | 3 | Automatización con Lambda y EventBridge | ✅ |
 | 4 | SQL y modelo analítico en Athena | ✅ |
 | 5 | Infraestructura como código completa | ✅ |
-| 6 | CI/CD con GitHub Actions | 🟡 |
+| 6 | CI/CD con GitHub Actions | ✅ |
 | 7 | Agente text-to-SQL | ⬜ |
 | 8 | Escaparate | ⬜ |
 
@@ -439,10 +439,27 @@ Plantilla para cada fase (se rellena al trabajarla):
   - **Build 2** (PR #4 fusionado, `0910d2b`, disparado otra vez por `GitHub-Hookshot`) → **FAILED en `terraform plan`**. Antes funcionó todo: el zip en Linux (194 ficheros; **SHA-256 `7jU2…`, distinto del de Windows `tPxh…`**: el riesgo de D-027 se confirma) y `terraform init` con el *state* de S3 usando el rol del *deployer*. Error en los 3 parámetros de SSM: `ssm:DescribeParameters` sobre `arn:aws:ssm:eu-north-1:<cuenta>:*` (*"no identity-based policy allows"*). Esa acción no admite acotar por recurso. **Excepción aprobada por Alberto**: sentencia aparte `MetadatosSsm` (solo `DescribeParameters`, solo cuenta y región; los valores siguen limitados a `/marketpulse/*` con `GetParameter`). `plan` → `1 to change`; `apply` de Alberto → `1 changed` (un segundo `apply` del mismo fichero → `Saved plan is stale`, sin efecto).
   - **Build 3** (PR #5 fusionado, `c900afd`, por `GitHub-Hookshot`) → **SUCCEEDED** (`INSTALL` 19 s, `PRE_BUILD` 2 s con `155 passed`, `BUILD` 31 s): `Plan: 0 to add, 2 to change, 0 to destroy` (`source_code_hash` de las 2 Lambdas, `tPxh…` → `7jU2…`), `GUARDIA: el plan no borra ni reemplaza nada`, `Apply complete! 0 added, 2 changed, 0 destroyed`. Lambdas `Active`/`Successful` con `CodeSha256 7jU2…`. **Criterio 2 cumplido: un *merge* a `main` despliega sin ninguna clave de AWS en GitHub.**
   - **Zip reproducible** (rama `fase6/zip-reproducible`): después, el `plan` local quería volver a poner el zip de Windows. Se descargó el código desplegado (`get-function` → `Code.Location`) y se comparó fichero a fichero con el local. Tres causas: (1) **CRLF** en nuestros `.py` en Windows (Git `core.autocrlf`), frente a LF en Linux; (2) **`certifi` distinto** (cada máquina fijaba la versión de su venv: 2026.10.19 en local y 2026.7.22 en CodeBuild, que no ve la de octubre); (3) **`create_system`** de cada entrada del zip (0 = MS-DOS en Windows, 3 = Unix en Linux). Arreglos: `packaged_bytes()` normaliza a LF nuestros `.py`/`.yaml`/`.txt`; `config/lambda-requirements.txt` con versiones exactas (`--update-lock` lo regenera; `certifi==2026.7.22`) y `check_lock_covers` para que no se quede atrás; `create_system = 3` siempre. 5 tests nuevos (**160**). Resultado: el zip de Windows da **`7jU2NQ15…`, idéntico** al de CodeBuild, y el `plan` local → `No changes`.
+  - **Build 4** (PR #6 fusionado, `0f106b1`, por `GitHub-Hookshot`) → **SUCCEEDED**: `160 passed`, `certifi==2026.7.22`, `SHA-256 7jU2NQ15…` (**el mismo que en Windows**), `No changes`, `GUARDIA` OK, `Apply complete! 0 added, 0 changed, 0 destroyed`. CodeBuild y el ordenador de Alberto ven exactamente lo mismo.
+- Paso 6.8 — Cierre: README (los 5 módulos; el primer `apply` falla en CodeBuild hasta autorizar la conexión, paso 7.4; nueva sección "Despliegue continuo" con sus excepciones: `modules/cicd` a mano, la guardia y `--update-lock`), D-027 y D-028 actualizadas, y este resumen.
 ### Problemas encontrados
+- La SCP deniega `iam:*Provider*` (incluso listar): no hay OIDC de GitHub. Se resolvió con CodeBuild + CodeConnections (D-027).
+- *Lock file* de Terraform solo con la huella de Windows: `validate` falló en Linux (6.3). Arreglo: `providers lock` para 3 plataformas.
+- La protección de `main` no se aplica en repositorios privados del plan Free (6.3).
+- La app de GitHub quedó autorizada pero sin instalar (6.4). Sus permisos son más amplios de lo necesario (riesgo aceptado).
+- `CreateProject` falló dos veces: el `Deny` del *deployer* bloqueaba la acción antigua `codestar-connections:GetConnection` (diagnosticado con CloudTrail), y después hubo un problema de propagación de IAM (6.6).
+- *Builds* fallidos: `Invalid cross-device link` en `build_lambda.py` y `ssm:DescribeParameters` (excepción aprobada). Zip distinto entre Windows y Linux por 3 causas (6.7). Ninguno cambió nada en AWS.
+- **Riesgos abiertos de esta fase:** (1) la protección de `main` se activará al hacer público el repositorio (Fase 8); (2) los permisos de la app *AWS Connector for GitHub* son amplios (aceptado); (3) la primera ejecución programada con el techo en el rol del Scheduler (2026-10-23, 06:00 UTC) está pendiente de comprobar; (4) Alpha Vantage da *timeouts* y respuestas vacías (6.5a); (5) los cambios en `modules/cicd` se aplican a mano (a propósito).
 ### Qué ha aprendido Alberto
+- CI frente a CD: GitHub Actions (*workflow*, *job*, *runner*, acciones fijadas por SHA, `permissions`) para validar cada PR, y CodeBuild (*buildspec*, *webhook*, guardia del *plan*) para desplegar cada *merge*.
+- Desplegar sin secretos cuando OIDC no está disponible: el permiso va de GitHub hacia AWS (CodeConnections + GitHub App) y las credenciales nunca salen de AWS (el rol de CodeBuild).
+- IAM a fondo: escalada de privilegios, *permissions boundary* y administración delegada, `iam:PassRole` con `PassedToService`, `Deny` con `NotAction`, `explicitDeny` frente a `implicitDeny`, los límites del simulador, la propagación de IAM y cómo investigar un `AccessDenied` con CloudTrail.
+- Cadena de suministro: fijar acciones por SHA, no usar una versión publicada el mismo día, verificar el SHA-256 de Terraform, las huellas por plataforma del *lock file* y *builds* reproducibles comparados byte a byte.
+- Que el primer despliegue automático casi nunca sale a la primera: cada fallo se leyó en el log, se formuló una hipótesis, se comprobó y se arregló sin tocar AWS por accidente.
 ### Cómo contarlo en una entrevista
+"Monté CI/CD para el proyecto: cada pull request pasa linter, tests y validación de Terraform en GitHub Actions, y cada merge a main se despliega solo con CodeBuild, sin ninguna clave de AWS guardada en GitHub. La cuenta no permitía crear el proveedor OIDC habitual, así que conecté GitHub con AWS a través de CodeConnections y dejé que el despliegue corriera dentro de AWS con su propio rol. Ese rol puede gestionar todo el proyecto, pero no escalar privilegios: solo puede modificar roles que llevan un permissions boundary, y tiene denegado tocarse a sí mismo o al pipeline; lo comprobé con el simulador de IAM y con CloudTrail. Además, el despliegue para solo si el plan de Terraform va a borrar algo, y conseguí que el paquete de las Lambdas fuera reproducible byte a byte entre Windows y Linux."
 ### Pregunta típica de entrevista
+**P:** ¿Cómo evitas que el rol con el que despliega tu pipeline se convierta en un administrador de la cuenta?
+**R:** Con tres capas. Primero, mínimo privilegio por ARN: solo recursos del proyecto, sin `*`, salvo una lectura justificada. Segundo, administración delegada: el rol solo puede crear o modificar roles que lleven un *permissions boundary*, el techo que limita lo que esos roles pueden hacer. Así no puede darle permisos de administrador a una Lambda y usarla para escalar. Tercero, `Deny` explícitos, que ganan siempre: el rol no puede modificarse a sí mismo, ni el techo, ni el pipeline, ni quitar techos. Lo verifico con el simulador de IAM, incluidos los intentos de escalada, que deben salir `explicitDeny`, y con los logs reales del despliegue.
 
 ## Fase 7 · Agente text-to-SQL
 **Criterios de aceptación:**
