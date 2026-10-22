@@ -1,7 +1,18 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 6 terminada (2026-10-22)
-**Siguiente paso:** comprobar la ejecución programada del 2026-10-23 (06:00 UTC) con el techo en el rol del Scheduler; después, Fase 7 · Agente text-to-SQL
+**Fase actual:** Fase 7 · Agente text-to-SQL, en curso (2026-10-22)
+**Siguiente paso:** 7.4 · ampliar el techo `marketpulse-boundary` en `cicd` (lo aplica Alberto a mano). Pendiente en paralelo: comprobar la ejecución programada del 2026-10-23 (06:00 UTC), la primera con el techo en el rol del Scheduler
+
+## Cómo se trabaja ahora (traspaso para la Fase 7)
+
+- **Cambios de código e infraestructura:** rama → PR hacia `main` → CI de GitHub Actions (ruff, pytest y `terraform fmt`/`validate`) → *merge* → **CodeBuild despliega solo** (`buildspec.yml`: tests, zip, `plan`, guardia `check_plan.py` y `apply`). Ya **no** se hace `terraform apply` desde el portátil para `storage`, `compute`, `analytics` ni `monitoring`.
+- **Excepciones que aplica Alberto a mano** (con `plan` revisado antes): todo lo de `infra/modules/cicd/` (conexión, techo `marketpulse-boundary`, rol `marketpulse-deployer` y CodeBuild), y cualquier *plan* que la guardia pare (*destroy* o *replace*).
+- **Cualquier rol de IAM nuevo** que deba crear o modificar el *deployer* tiene que llevar el techo `marketpulse-boundary`, y el techo tiene que cubrir sus permisos (D-028). Si no, el despliegue falla con `AccessDenied`: hay que ampliar el techo en `cicd` (a mano) antes de fusionar.
+- **En local**, para Terraform: `$env:AWS_PROFILE = "marketpulse"; $env:TF_DATA_DIR = "C:\Users\deben\.terraform-data\marketpulse"` y `aws login --profile marketpulse` si la sesión ha caducado. `terraform.tfvars` y `backend.hcl` están en `infra/`, ignorados por Git.
+- **Lambda:** si cambian las dependencias de `pyproject.toml`, `python scripts/build_lambda.py --update-lock` (un test lo exige). El zip es reproducible (D-027).
+- **Para leer logs con Git Bash:** `MSYS_NO_PATHCONV=1` (si no, `/aws/...` se convierte en una ruta de Windows) y `PYTHONUTF8=1` para los logs de CodeBuild.
+- **Pendiente (durante la Fase 7):** comprobar la ejecución programada del 2026-10-23 (ingesta 06:00 y transformación 06:30 UTC), la primera con el techo en el rol del Scheduler: `aws logs tail` de las dos Lambdas y el estado de las alarmas. La del 2026-10-22 ya está comprobada (paso 7.0) y fue anterior al techo.
+- **Para la Fase 7 (agente text-to-SQL):** las tablas y vistas de Athena (Fase 4) están en la base `marketpulse` del *workgroup* `marketpulse` (límite de 100 MB por consulta). `common/athena.py` (`run_query`) ya ejecuta SQL y devuelve los bytes escaneados. Hay que decidir con Alberto: el SDK de Anthropic, FastAPI y uvicorn y una librería de análisis de SQL (dependencias nuevas), el modelo y su coste, y **credenciales de solo lectura sin claves permanentes también dentro de Docker** (la parte delicada).
 
 Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 
@@ -14,7 +25,7 @@ Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 | 4 | SQL y modelo analítico en Athena | ✅ |
 | 5 | Infraestructura como código completa | ✅ |
 | 6 | CI/CD con GitHub Actions | ✅ |
-| 7 | Agente text-to-SQL | ⬜ |
+| 7 | Agente text-to-SQL | 🟡 |
 | 8 | Escaparate | ⬜ |
 
 <!--
@@ -468,6 +479,32 @@ Plantilla para cada fase (se rellena al trabajarla):
 - [ ] La API responde en `localhost` dentro de Docker
 
 ### Pasos completados
+- Paso 7.0 — Comprobación previa de la ejecución programada (solo lectura, 2026-10-22 a las 20:30 UTC):
+  - **Aviso de fechas:** la sesión empezó el 2026-10-22, no el 23. La ejecución programada de hoy (06:00 y 06:30 UTC) fue **anterior** al techo (aplicado en el paso 6.5a, probado a las 19:20 UTC). La primera ejecución programada con el techo en el rol del Scheduler sigue siendo la del **2026-10-23** y queda pendiente.
+  - Rol `marketpulse-scheduler` → `PermissionsBoundaryArn` = `marketpulse-boundary` · `list-schedules` → las 2 programaciones `ENABLED`.
+  - Ingesta 06:00:12 UTC: Frankfurter `200 en 9195 ms`, CoinGecko `200`, SPY/VT/QQQ `200`, `failed: {}`, `uploaded: 5`, `REPORT Duration 15802 ms, Init 379 ms`.
+  - Transformación 06:30:18 UTC: `Calidad: 69 comprobaciones, 0 fallan`, `bronze_downloaded: 19, uploaded: 4, unchanged: 4`, `Duration 2512 ms, Billed 4843 ms`.
+  - La invocación manual de las 19:20 UTC (paso 6.5a) es la que dejó `Errors 1` en la ingesta (Alpha Vantage). Métricas del día: ingesta `Invocations 2, Errors 1`; transformación `Invocations 2, Errors 0`.
+  - Alarmas: `marketpulse-ingest-errores` `OK → ALARM` a las 19:21:52 UTC (el aviso de la prueba) y `ALARM → OK` a las 19:35:52 UTC, sola · `marketpulse-transform-errores` en `OK`.
+  - **Riesgo que crece:** Frankfurter tardó 7,3 s el día 21 y **9,2 s** el 22, con un *timeout* de 10 s (a las 19:20 UTC, 418 ms: parece lento solo a primera hora). Si lo supera, el reintento lo cubre, pero conviene revisarlo (fuera del alcance de la Fase 7; ver "Ideas futuras").
+- Plan aprobado por Alberto (2026-10-22): Haiku 5.5; dependencias `anthropic`, `sqlglot`, `fastapi` y `uvicorn`; rol `marketpulse-agent` desplegado por CodeBuild (con el techo ampliado a mano en `cicd`); credenciales para Docker con `sts:AssumeRole` (1 h). Pasos: 7.1 documentación y dependencias · 7.2 validador de SQL · 7.3 registro de auditoría · 7.4 ampliar el techo · 7.5 rol del agente · 7.6 herramientas · 7.7 bucle agéntico · 7.8 evaluaciones · 7.9 API y Docker · 7.10 cierre.
+- Paso 7.1 — Documentación, precios y dependencias (D-029). Sin cambios en AWS.
+  - Precios oficiales de la API de Claude: Haiku 5.5 a 0,10/0,50 USD por millón de tokens (prompts de hasta 100.000) y Sonnet 5.5 a 2/10. Usar herramientas añade 286 tokens. Estimación: ~0,002 USD por pregunta (sin medir).
+  - Versiones (PyPI): `anthropic` **2.1.0** (la 2.0 pasa a la versión de API `2026-10-21`, del día anterior), `sqlglot` 30.24.0, `fastapi` **0.159.1** (las 0.160/0.161 son de hoy y se descartan) y `uvicorn` 0.54.0. Van en un extra `agent`. CI (`ci.yml`), CodeBuild (`buildspec.yml`) y el README instalan `.[dev,agent]`.
+  - Permisos de Athena y Glue para el rol del agente, sacados de la guía oficial y de `AmazonAthenaFullAccess` (`get-policy-version`, solo lectura). Se comprobarán con pruebas reales en el 7.5.
+  - Docker: cliente 29.7.2 instalado; **Docker Desktop no estaba arrancado** (hará falta en el 7.9). `python:3.13-slim` se actualizó hoy (se fijará por *digest* en el 7.9, y no la de hoy).
+  - Evidencia: `pip show` → anthropic 2.1.0, sqlglot 30.24.0, fastapi 0.159.1, uvicorn 0.54.0 · sqlglot con `read="athena"`: `SELECT ...` → 1 `Select`; `SELECT 1; DROP TABLE ...` → **2 sentencias** (`Select`, `Drop`); `CREATE TABLE x AS SELECT` → `Create`; `UNLOAD (...)` → `Command` (no lo entiende y lo deja como texto); `SELEC asset FROM` → `ParseError` · `pytest` → `160 passed` · `ruff check` y `format --check` correctos · `build_lambda.py` → **la misma huella `7jU2NQ15…`** (el zip de Lambda no cambia).
+  - Incidencia de entorno: en la sesión de Claude, `pytest` sin opciones falla al limpiar `%TEMP%\pytest-of-deben\pytest-current` (`PermissionError`) por el *sandbox*; con `--basetemp` en otra carpeta pasa entero. No es un fallo del código.
+  - Pregunta rápida (qué hacer con un `Command` de sqlglot): saltada por Alberto. Respuesta: bloquearlo, porque lo que no se puede analizar no se puede comprobar (*fail closed*). **Repasar al cerrar la fase.**
+- Paso 7.2 — Validador de SQL (D-030), sin AWS: `src/marketpulse/agent/__init__.py` y `agent/guard.py` (`validate_sql()` → `ValidatedSql(sql, tables, limit, limit_changed)` o `SqlRejectedError(code, reason)`), con 7 reglas: texto válido, se puede analizar, una sola sentencia, raíz `Select`/`SetOperation`, ningún nodo de escritura o DDL en el árbol, lista blanca de 8 tablas de `marketpulse` y `LIMIT` entero (se añade o se recorta a 1000). Se ejecuta la SQL regenerada desde el árbol.
+  - Comprobación previa con sqlglot 30.24.0: `FETCH FIRST` va en el mismo hueco que `LIMIT` (nodo `Fetch`); `SELECT * INTO nueva` es un `Select` con `into` (hay que mirar dentro del árbol, no solo la raíz); los nombres de las CTE aparecen como `Table`; un `;` final no crea otra sentencia; `SHOW`, `UNLOAD` y `MSCK` → `Command`.
+  - Pregunta rápida (¿para qué la regla 4 si la 5 ya bloquea `Drop`?): saltada. Respuesta: `SHOW TABLES` es un `Command` en la raíz, y la lista blanca de tipos de raíz rechaza también lo que no está en la lista negra. **Repasar al cerrar la fase.**
+  - Evidencia: `tests/test_guard.py` → **36 passed** (6 formas válidas de leer, 4 casos de `LIMIT`/CTE/UNION, 23 rechazos con su código, la CTE que intenta tapar otra base, el mensaje con el motivo y que la lista blanca coincide con `sql/views/` y `glue.tf`) · `pytest` → `196 passed` · `ruff check` y `format --check` correctos.
+- Paso 7.3 — Registro de auditoría y coste de tokens (D-031), sin AWS:
+  - `agent/audit.py`: `AuditRecord` + `AuditLog.write()`, una línea JSON por pregunta en `logs/agent_audit.jsonl` y en el logger (`INFO`/`WARNING`/`ERROR` según `outcome`), con candado entre hilos, recorte a 4.000 caracteres y sin callarse los errores.
+  - `agent/usage.py`: `TokenUsage.add(response.usage)` con precio por llamada (tarifa larga de Haiku por encima de 100.000 tokens) y `UnknownModelError` si falta un precio.
+  - `logs/` añadido a `.gitignore`.
+  - Evidencia: `tests/test_usage.py` → 8 passed (p. ej., 10.000 de entrada + 1.000 de salida con Haiku = **0,0015 USD**) · `tests/test_audit.py` → 11 passed (un ataque con `\n` sigue siendo **1 línea**; 8 hilos × 25 = **200 líneas JSON válidas**) · `pytest` → `215 passed` · ruff y formato correctos · `git check-ignore -v logs/agent_audit.jsonl` → `.gitignore:31:logs/`.
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista

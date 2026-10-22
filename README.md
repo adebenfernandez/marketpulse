@@ -28,7 +28,7 @@ se indique otra carpeta.
 ```powershell
 python -m venv C:\Users\<tú>\.venvs\marketpulse        # fuera de OneDrive o Dropbox, si lo usas
 & C:\Users\<tú>\.venvs\marketpulse\Scripts\Activate.ps1
-pip install -e ".[dev]"
+pip install -e ".[dev,agent]"   # agent: el agente text-to-SQL (Fase 7)
 Copy-Item .env.example .env       # rellena tus claves de API (el bucket, después del paso 6)
 ```
 

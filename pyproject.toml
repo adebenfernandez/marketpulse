@@ -21,6 +21,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Agente text-to-SQL (Fase 7, D-029). Extra aparte: no viajan al zip de Lambda,
+# que solo empaqueta [project.dependencies]
+agent = [
+    "anthropic>=2.1,<3",    # SDK oficial de la API de Claude (versión de API 2026-10-21)
+    "sqlglot>=30.23",       # analizar la SQL como árbol (AST) para validar que es un único SELECT
+    "fastapi>=0.159",       # API HTTP del agente
+    "uvicorn>=0.54",        # servidor que ejecuta la app de FastAPI
+]
 # Herramientas solo para desarrollo: no viajan a Lambda
 dev = [
     "ruff>=0.14",

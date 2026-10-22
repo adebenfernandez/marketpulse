@@ -25,7 +25,7 @@ phases:
       - curl -sSfLo /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_arm64.zip"
       - echo "${TF_SHA256}  /tmp/terraform.zip" | sha256sum -c -
       - unzip -o -q /tmp/terraform.zip -d /usr/local/bin && terraform -version
-      - pip install --quiet -e ".[dev]"
+      - pip install --quiet -e ".[dev,agent]"
 
   pre_build:
     commands:
