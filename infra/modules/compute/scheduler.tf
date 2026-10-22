@@ -36,6 +36,8 @@ resource "aws_iam_role" "scheduler" {
   name               = "${var.project}-scheduler"
   description        = "Rol con el que EventBridge Scheduler invoca las Lambdas de MarketPulse"
   assume_role_policy = data.aws_iam_policy_document.scheduler_trust.json
+
+  permissions_boundary = var.permissions_boundary_arn # techo de permisos (D-028)
 }
 
 data "aws_iam_policy_document" "scheduler" {

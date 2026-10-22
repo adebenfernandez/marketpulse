@@ -26,3 +26,13 @@ output "athena_workgroup" {
   description = "Workgroup de Athena para todas las consultas de MarketPulse"
   value       = module.analytics.athena_workgroup
 }
+
+output "github_connection_status" {
+  description = "Estado de la conexión con GitHub: PENDING hasta autorizarla en la consola"
+  value       = module.cicd.github_connection_status
+}
+
+output "deploy_project_name" {
+  description = "Proyecto de CodeBuild que despliega en cada push a main"
+  value       = module.cicd.deploy_project_name
+}

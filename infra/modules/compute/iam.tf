@@ -35,6 +35,9 @@ resource "aws_iam_role" "lambda" {
   name               = "${each.value}-lambda" # marketpulse-ingest-lambda, marketpulse-transform-lambda
   description        = "Rol de ejecucion de la Lambda ${each.value}"
   assume_role_policy = data.aws_iam_policy_document.lambda_trust.json
+
+  # Techo de permisos (D-028): aunque su política creciera, el rol no podría salir de este límite
+  permissions_boundary = var.permissions_boundary_arn
 }
 
 # --- 2a. Permisos de la Lambda de INGESTA ---
