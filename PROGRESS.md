@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
 **Fase actual:** Fase 7 · Agente text-to-SQL, en curso (2026-10-22)
-**Siguiente paso:** fusionar el PR de `fase7/techo-agente` (CodeBuild redespliega las Lambdas con la huella `7jU2…`) y después 7.5 · rol `marketpulse-agent`. Pendiente en paralelo: comprobar la ejecución programada del 2026-10-23 (06:00 UTC), la primera con el techo en el rol del Scheduler
+**Siguiente paso:** 7.5 · PR de `fase7/rol-agente` → CodeBuild crea el rol `marketpulse-agent` → pruebas reales (SELECT permitido; DROP, CTAS y `silver/` denegados). Pendiente en paralelo: comprobar la ejecución programada del 2026-10-23 (06:00 UTC), la primera con el techo en el rol del Scheduler
 
 ## Cómo se trabaja ahora (traspaso para la Fase 7)
 
@@ -515,6 +515,9 @@ Plantilla para cada fase (se rellena al trabajarla):
   - `fmt -check` y `validate` correctos. `plan` completo → `0 to add, 3 to change, 0 to destroy` (el techo *in-place* + las 2 Lambdas, `M3kr…` → `7jU2…`). `plan -target=module.cicd.aws_iam_policy.workload_boundary -out=tfplan` → **`1 to change`**, solo el techo, *in-place*.
   - `terraform apply tfplan` ejecutado por Alberto → `Modifications complete after 2s`, `Apply complete! Resources: 0 added, 1 changed, 0 destroyed`, con el aviso esperado de `-target` (un `cd infra` sobrante falló sin consecuencias: ya estaba en `infra`).
   - Evidencia (solo lectura): `get-policy` → versión por defecto **`v2`** · `get-policy-version` → **9 sentencias** (las 6 de antes + `LeerElCatalogo` con 6 acciones, `ConsultarConAthena` con 5 y `ResultadosDeAthena` con 4) y **0 apariciones de `"*"`** · los 3 roles siguen con `PermissionsBoundaryArn` = `marketpulse-boundary` · `plan` completo → solo las 2 Lambdas (`0 to add, 2 to change, 0 to destroy`), que desplegará CodeBuild al fusionar.
+  - PR #9 (`fase7/techo-agente`) fusionado por Alberto (`989b5e5`). CodeBuild, *build* 7 (`GitHub-Hookshot`) → **SUCCEEDED**: `216 passed`, huella `7jU2NQ15…`, `Plan: 0 to add, 2 to change, 0 to destroy` (solo las 2 Lambdas, como se esperaba) · `get-function` → `CodeSha256 7jU2NQ15…`, `Active`, `Successful`.
+- Paso 7.5 — Rol `marketpulse-agent` (D-033), rama `fase7/rol-agente`: módulo nuevo `infra/modules/agent` (`main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`). El rol confía solo en el rol de Alberto (`managed/AccountFullAccessRole`), con sesión de 1 h y el techo puesto. La política `leer-datos-marketpulse` permite: Glue de solo lectura; las 4 llamadas de Athena en el *workgroup* `marketpulse`; `ListBucket` solo en `gold/*` y `athena-results/*`; `GetObject` en `gold/*`; y lectura y escritura en `athena-results/*`. Raíz: `module "agent"`, variable `agent_trusted_role` y salida `agent_role_arn`.
+  - Evidencia (local, sin cambios en AWS): `terraform init` → `agent in modules\agent` · `fmt -check` y `validate` correctos · `plan` → **`2 to add, 0 to change, 0 to destroy`** (`module.agent.aws_iam_role.agent` y `aws_iam_role_policy.agent`). Pendiente: PR → CodeBuild y las pruebas reales.
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista

@@ -26,3 +26,11 @@ variable "tfstate_bucket_name" {
   description = "Bucket del state de Terraform creado por infra/bootstrap"
   type        = string
 }
+
+# Rol que puede ponerse el rol de solo lectura del agente (D-033). En la cuenta de la "nueva
+# experiencia de AWS", `aws login` da el rol gestionado managed/AccountFullAccessRole
+variable "agent_trusted_role" {
+  description = "Nombre (con ruta) del rol que puede asumir marketpulse-agent"
+  type        = string
+  default     = "managed/AccountFullAccessRole"
+}

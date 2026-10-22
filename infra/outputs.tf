@@ -36,3 +36,8 @@ output "deploy_project_name" {
   description = "Proyecto de CodeBuild que despliega en cada push a main"
   value       = module.cicd.deploy_project_name
 }
+
+output "agent_role_arn" {
+  description = "Rol de solo lectura del agente: el script de Docker lo asume (sts:AssumeRole, 1 h)"
+  value       = module.agent.agent_role_arn
+}
