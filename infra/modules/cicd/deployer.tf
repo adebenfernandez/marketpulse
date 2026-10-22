@@ -237,6 +237,16 @@ data "aws_iam_policy_document" "deployer" {
     ]
     resources = ["arn:aws:ssm:${local.reg}:${local.acct}:parameter/${local.p}/*"]
   }
+  # EXCEPCIÓN aprobada por Alberto (paso 6.7): Terraform lee los metadatos de cada parámetro con
+  # ssm:DescribeParameters, y AWS solo autoriza esa acción sobre TODOS los parámetros de la cuenta y
+  # la región (no admite acotar por nombre). Solo lista nombres, tipos y descripciones: los VALORES
+  # siguen necesitando GetParameter, limitado a /marketpulse/* en la sentencia de arriba
+  statement {
+    sid       = "MetadatosSsm"
+    effect    = "Allow"
+    actions   = ["ssm:DescribeParameters"]
+    resources = ["arn:aws:ssm:${local.reg}:${local.acct}:*"]
+  }
 
   # 7) SNS: el tema de alertas y su suscripción
   statement {
