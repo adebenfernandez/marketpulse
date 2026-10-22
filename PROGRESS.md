@@ -3,6 +3,17 @@
 **Fase actual:** Fase 6 terminada (2026-10-22)
 **Siguiente paso:** comprobar la ejecución programada del 2026-10-23 (06:00 UTC) con el techo en el rol del Scheduler; después, Fase 7 · Agente text-to-SQL
 
+## Cómo se trabaja ahora (traspaso para la Fase 7)
+
+- **Cambios de código e infraestructura:** rama → PR hacia `main` → CI de GitHub Actions (ruff, pytest y `terraform fmt`/`validate`) → *merge* → **CodeBuild despliega solo** (`buildspec.yml`: tests, zip, `plan`, guardia `check_plan.py` y `apply`). Ya **no** se hace `terraform apply` desde el portátil para `storage`, `compute`, `analytics` ni `monitoring`.
+- **Excepciones que aplica Alberto a mano** (con `plan` revisado antes): todo lo de `infra/modules/cicd/` (conexión, techo `marketpulse-boundary`, rol `marketpulse-deployer` y CodeBuild), y cualquier *plan* que la guardia pare (*destroy* o *replace*).
+- **Cualquier rol de IAM nuevo** que deba crear o modificar el *deployer* tiene que llevar el techo `marketpulse-boundary`, y el techo tiene que cubrir sus permisos (D-028). Si no, el despliegue falla con `AccessDenied`: hay que ampliar el techo en `cicd` (a mano) antes de fusionar.
+- **En local**, para Terraform: `$env:AWS_PROFILE = "marketpulse"; $env:TF_DATA_DIR = "C:\Users\deben\.terraform-data\marketpulse"` y `aws login --profile marketpulse` si la sesión ha caducado. `terraform.tfvars` y `backend.hcl` están en `infra/`, ignorados por Git.
+- **Lambda:** si cambian las dependencias de `pyproject.toml`, `python scripts/build_lambda.py --update-lock` (un test lo exige). El zip es reproducible (D-027).
+- **Para leer logs con Git Bash:** `MSYS_NO_PATHCONV=1` (si no, `/aws/...` se convierte en una ruta de Windows) y `PYTHONUTF8=1` para los logs de CodeBuild.
+- **Pendiente antes de la Fase 7:** comprobar la ejecución programada del 2026-10-23 (ingesta 06:00 y transformación 06:30 UTC), la primera con el techo en el rol del Scheduler: `aws logs tail` de las dos Lambdas y el estado de las alarmas.
+- **Para la Fase 7 (agente text-to-SQL):** las tablas y vistas de Athena (Fase 4) están en la base `marketpulse` del *workgroup* `marketpulse` (límite de 100 MB por consulta). `common/athena.py` (`run_query`) ya ejecuta SQL y devuelve los bytes escaneados. Hay que decidir con Alberto: el SDK de Anthropic, FastAPI y uvicorn y una librería de análisis de SQL (dependencias nuevas), el modelo y su coste, y **credenciales de solo lectura sin claves permanentes también dentro de Docker** (la parte delicada).
+
 Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 
 | Fase | Nombre | Estado |
