@@ -22,3 +22,8 @@ variable "alertas_topic_arn" {
   description = "Tema SNS de alertas (techo de sns:Publish)"
   type        = string
 }
+
+variable "tfstate_bucket_name" {
+  description = "Bucket del state de Terraform (infra/bootstrap): el deployer lee y escribe el state"
+  type        = string
+}

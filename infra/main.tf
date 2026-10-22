@@ -64,6 +64,7 @@ module "cicd" {
   account_id = local.account_id
   region     = local.region
 
-  bucket_arn        = module.storage.bucket_arn
-  alertas_topic_arn = module.monitoring.alertas_topic_arn
+  bucket_arn          = module.storage.bucket_arn
+  alertas_topic_arn   = module.monitoring.alertas_topic_arn
+  tfstate_bucket_name = var.tfstate_bucket_name
 }

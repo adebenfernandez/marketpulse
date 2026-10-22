@@ -66,7 +66,7 @@ cd ..\..
 
 ```powershell
 Copy-Item infra\backend.hcl.example infra\backend.hcl              # pon el bucket del paso 3
-Copy-Item infra\terraform.tfvars.example infra\terraform.tfvars    # pon tu email de alertas
+Copy-Item infra\terraform.tfvars.example infra\terraform.tfvars    # tu email de alertas y el bucket del paso 3
 ```
 
 ### 5. Paquete de las Lambdas

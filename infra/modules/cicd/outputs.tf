@@ -12,3 +12,8 @@ output "workload_boundary_arn" {
   description = "ARN del permissions boundary que deben llevar los roles de compute"
   value       = aws_iam_policy.workload_boundary.arn
 }
+
+output "deployer_role_arn" {
+  description = "ARN del rol con el que CodeBuild despliega (D-028)"
+  value       = aws_iam_role.deployer.arn
+}

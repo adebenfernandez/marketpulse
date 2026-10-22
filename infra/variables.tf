@@ -19,3 +19,10 @@ variable "alert_email" {
   type        = string
   sensitive   = true # Terraform lo oculta en el plan y en los logs: (sensitive value)
 }
+
+# El backend no admite variables, así que el bucket del state se repite aquí para dárselo al rol de
+# despliegue (cicd). Mismo valor que en backend.hcl; va en terraform.tfvars (no es secreto)
+variable "tfstate_bucket_name" {
+  description = "Bucket del state de Terraform creado por infra/bootstrap"
+  type        = string
+}
