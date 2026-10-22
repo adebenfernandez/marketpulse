@@ -20,6 +20,7 @@ import hashlib
 import importlib.metadata as metadata
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -201,8 +202,13 @@ def main() -> int:
             tmp_zip
         )  # si falla, se lanza AssertionError y el zip anterior sigue intacto
         BUILD.mkdir(exist_ok=True)
-        # Solo un zip YA VERIFICADO sustituye al anterior (os.replace: mismo disco, atómico)
-        os.replace(tmp_zip, ZIP_PATH)
+        # Solo un zip YA VERIFICADO sustituye al anterior. os.replace es atómico porque solo
+        # RENOMBRA, y renombrar solo funciona dentro del mismo disco: en CodeBuild /tmp es otro
+        # disco ("Invalid cross-device link", paso 6.6). Por eso primero se copia a un temporal
+        # junto al destino (mismo disco) y después se renombra
+        staged = ZIP_PATH.with_suffix(".zip.tmp")
+        shutil.copyfile(tmp_zip, staged)
+        os.replace(staged, ZIP_PATH)
 
     digest = hashlib.sha256(ZIP_PATH.read_bytes()).digest()
     print(
