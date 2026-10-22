@@ -672,3 +672,25 @@ Fuentes: [Pricing](https://platform.claude.com/docs/en/about-claude/pricing) · 
 **Seguridad:** `json.dumps` escapa los `\n`, así que una pregunta no puede fabricar una línea falsa (inyección en logs). El registro solo guarda lo que recibe en `AuditRecord`: ninguna clave.
 
 **Verificación:** `tests/test_usage.py` (8, con las cuentas hechas a mano en los comentarios) y `tests/test_audit.py` (11: bloqueo registrado, añadir sin borrar, inyección de línea, recorte, `outcome` inválido, nivel del log ×4, 8 hilos × 25 escrituras = 200 líneas JSON válidas, ruta por defecto). `pytest` → `215 passed`.
+
+---
+
+## D-032 · Techo ampliado con las consultas de solo lectura del agente, aplicado a mano con `-target`
+**Fecha:** 2026-10-22 · **Fase:** 7 · **Amplía:** D-028
+
+**Contexto:** el rol `marketpulse-agent` (paso 7.5) lo creará el *deployer* de CodeBuild, que solo puede crear roles con el techo `marketpulse-boundary` (D-028). Los permisos de un rol son la intersección de su política y su techo, así que el techo tiene que cubrir las consultas de Athena. El *deployer* tiene denegado modificar el techo, de modo que este cambio lo aplica Alberto a mano.
+
+**Decisión:** tres sentencias nuevas en `modules/cicd/boundary.tf`, más `s3:GetBucketLocation` en `ListarElDataLake`. Ningún `"*"`:
+- **`LeerElCatalogo`:** `glue:GetDatabase`, `GetTable`, `GetTables`, `GetPartition`, `GetPartitions` y `BatchGetPartition` sobre el catálogo, la base `marketpulse` y `table/marketpulse/*`. Las acciones de particiones están en el techo por si Athena las pide (con *partition projection* no debería); la política del rol solo llevará lo que se compruebe en el 7.5.
+- **`ConsultarConAthena`:** `athena:StartQueryExecution`, `GetQueryExecution`, `GetQueryResults`, `StopQueryExecution` y `GetWorkGroup`, solo en el *workgroup* `marketpulse`.
+- **`ResultadosDeAthena`:** `s3:GetObject`, `PutObject`, `AbortMultipartUpload` y `ListMultipartUploadParts` en `athena-results/*`. Athena escribe los resultados con las credenciales de quien lanza la consulta.
+- **Ninguna acción de Glue que cree, cambie o borre.** Con este techo, ningún rol puede hacer `DROP TABLE` ni `CREATE TABLE`, aunque su política lo permitiera.
+- **La descripción de la política no se cambia:** en `aws_iam_policy`, cambiarla obliga a reemplazar la política (*destroy* + *create*), y la llevan 3 roles.
+- **Los roles actuales no ganan nada:** su política no incluye estas acciones, y el permiso efectivo es la intersección.
+
+**Aplicación:** `terraform plan -target=module.cicd.aws_iam_policy.workload_boundary -out=tfplan` y `terraform apply tfplan`, que ejecuta Alberto. Con `-target`, el `plan` solo incluye el techo. Sin él, también subiría desde el portátil el código de las 2 Lambdas (la vuelta a la huella `7jU2…` al excluir `agent/` del zip), y eso tiene que desplegarlo CodeBuild cuando se fusione el PR.
+
+**Alternativas descartadas:**
+- **Un techo aparte solo para el agente:** el *deployer* solo admite `marketpulse-boundary` en su condición. Habría que cambiar también la política del *deployer* (más cambios a mano) para ganar poco.
+- **Crear el rol del agente a mano, fuera de CodeBuild:** rompería la regla "todo lo que no es `cicd` pasa por PR + CodeBuild" (decisión de Alberto en el plan de la fase).
+- **`plan` sin `-target`:** desplegaría las Lambdas desde Windows. El zip es idéntico, pero el cambio debe llegar por el *pipeline*.

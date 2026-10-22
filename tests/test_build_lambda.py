@@ -12,6 +12,13 @@ build_lambda = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(build_lambda)
 
 
+def test_el_agente_no_va_al_zip_de_lambda(tmp_path):
+    names = [arcname for _, arcname in build_lambda.files_to_package(tmp_path)]
+    assert "marketpulse/ingest/handler.py" in names
+    assert "marketpulse/common/athena.py" in names
+    assert not [n for n in names if n.startswith("marketpulse/agent/")]
+
+
 def test_nuestro_codigo_se_empaqueta_con_finales_lf(tmp_path):
     fichero = tmp_path / "x.py"
     fichero.write_bytes(b"a = 1\r\nb = 2\r\n")  # como lo entrega Git en Windows
