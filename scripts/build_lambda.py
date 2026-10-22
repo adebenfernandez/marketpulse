@@ -1,18 +1,21 @@
 """Construye el paquete de despliegue de las Lambdas: build/lambda.zip (arm64, Python 3.13).
 
 Uso (desde la raíz del proyecto, con el venv activado):
-    python scripts/build_lambda.py
+    python scripts/build_lambda.py                # construye el zip
+    python scripts/build_lambda.py --update-lock  # actualiza config/lambda-requirements.txt
 
 Qué mete en el zip:
   - Nuestro código: src/marketpulse/ -> marketpulse/ (sin cachés __pycache__).
   - La configuración: config/watchlist.yaml (Lambda arranca en /var/task, la raíz del zip, así
     que la ruta relativa "config/watchlist.yaml" del código sigue funcionando).
   - Las dependencias de pyproject.toml QUE NO TRAE la capa AWS SDK for pandas (requests, PyYAML,
-    python-dotenv y las suyas), compiladas para Linux arm64 y con las MISMAS versiones que el
-    venv local, que son las que han pasado los tests.
+    python-dotenv y las suyas), compiladas para Linux arm64 y con las versiones EXACTAS de
+    config/lambda-requirements.txt (se genera desde el venv local, que es el que pasa los tests).
 
-El zip es DETERMINISTA: mismo contenido -> mismos bytes (orden fijo y fecha fija en cada fichero).
-Así Terraform solo vuelve a desplegar la Lambda cuando el código o una dependencia cambian.
+El zip es DETERMINISTA y REPRODUCIBLE: el mismo commit da los mismos bytes en cualquier máquina
+(Windows o el Linux de CodeBuild): orden fijo, fecha fija, versiones del fichero de bloqueo y
+finales de línea LF en nuestro código. Así Terraform solo vuelve a desplegar la Lambda cuando el
+código o una dependencia cambian de verdad (paso 6.7).
 """
 
 import base64
@@ -46,6 +49,15 @@ LAYER_PROVIDED = {"pandas", "pyarrow", "boto3"}
 MAX_ZIP_MB = 50
 MAX_UNZIPPED_MB = 250
 FIXED_DATE = (1980, 1, 1, 0, 0, 0)  # la fecha más antigua que admite el formato zip
+
+# Versiones exactas de las dependencias de la Lambda. Sin este fichero, cada máquina fijaba las
+# de su propio venv, y CodeBuild empaquetaba otro certifi que Windows (paso 6.7)
+LOCK_PATH = ROOT / "config" / "lambda-requirements.txt"
+
+# Ficheros de texto NUESTROS que se normalizan a finales de línea LF al empaquetarlos. Git entrega
+# CRLF en Windows (core.autocrlf) y LF en Linux; sin normalizar, el zip cambiaba de huella según
+# dónde se construyera (paso 6.7). Python y YAML leen igual las dos formas
+TEXT_SUFFIXES = {".py", ".yaml", ".yml", ".txt"}
 
 
 def normalize(name: str) -> str:
@@ -91,6 +103,41 @@ def pinned_closure(names: list[str]) -> dict[str, str]:
             if "extra ==" not in req:  # las dependencias opcionales ("extras") no hacen falta
                 pending.append(requirement_name(req))
     return pins
+
+
+def write_lock(pins: dict[str, str], path: Path = LOCK_PATH) -> None:
+    """Escribe el fichero de bloqueo: una línea nombre==versión por dependencia, en orden."""
+    header = (
+        "# Dependencias de la Lambda con versión EXACTA (las empaqueta scripts/build_lambda.py).\n"
+        "# Se generan desde el venv local: python scripts/build_lambda.py --update-lock\n"
+    )
+    lines = [f"{name}=={version}" for name, version in sorted(pins.items())]
+    path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+def read_lock(path: Path = LOCK_PATH) -> dict[str, str]:
+    """Lee el fichero de bloqueo (ignora comentarios y líneas vacías)."""
+    pins: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            name, version = line.split("==")
+            pins[normalize(name)] = version.strip()
+    return pins
+
+
+def check_lock_covers(locked: dict[str, str], needed: set[str]) -> None:
+    """El bloqueo debe tener EXACTAMENTE los paquetes que piden las dependencias de pyproject.
+
+    Si se añade o se quita una dependencia en pyproject.toml y no se regenera el bloqueo, se para
+    con un mensaje claro (si no, la Lambda saldría sin un paquete o con uno que sobra).
+    """
+    missing, extra = needed - set(locked), set(locked) - needed
+    if missing or extra:
+        raise SystemExit(
+            f"config/lambda-requirements.txt no está al día (faltan {sorted(missing)}, "
+            f"sobran {sorted(extra)}): ejecuta python scripts/build_lambda.py --update-lock"
+        )
 
 
 def install_dependencies(pins: dict[str, str], target: Path) -> None:
@@ -144,13 +191,26 @@ def files_to_package(deps_dir: Path) -> list[tuple[Path, str]]:
     return sorted(entries, key=lambda e: e[1])
 
 
+def packaged_bytes(path: Path, arcname: str) -> bytes:
+    """Contenido de un fichero tal y como va al zip: nuestro texto, siempre con finales LF."""
+    data = path.read_bytes()
+    ours = arcname.startswith(("marketpulse/", "config/"))
+    if ours and path.suffix in TEXT_SUFFIXES:
+        data = data.replace(b"\r\n", b"\n")
+    return data
+
+
 def write_zip(entries: list[tuple[Path, str]], zip_path: Path) -> None:
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for path, arcname in entries:
             info = zipfile.ZipInfo(arcname, date_time=FIXED_DATE)  # fecha fija: zip determinista
             info.external_attr = 0o644 << 16  # permisos Unix rw-r--r--: Lambda debe poder leerlo
+            # "Sistema que creó el fichero": Python pone 0 (MS-DOS) en Windows y 3 (Unix) en Linux,
+            # y cambiaba la huella del zip según dónde se construyera (paso 6.7). Siempre Unix,
+            # coherente con los permisos Unix de la línea anterior
+            info.create_system = 3
             info.compress_type = zipfile.ZIP_DEFLATED
-            zf.writestr(info, path.read_bytes())
+            zf.writestr(info, packaged_bytes(path, arcname))
 
 
 def verify_zip(zip_path: Path) -> dict:
@@ -184,10 +244,16 @@ def verify_zip(zip_path: Path) -> dict:
     return {"files": len(names), "zip_mb": zip_mb, "unzipped_mb": unzipped / 1e6, "so": binaries}
 
 
-def main() -> int:
-    requirements = runtime_requirements()
-    pins = pinned_closure(requirements)
-    print(f"Dependencias para Lambda ({PLATFORMS[0]}, Python {PYTHON_VERSION}):")
+def main(argv: list[str]) -> int:
+    venv_pins = pinned_closure(runtime_requirements())
+    if "--update-lock" in argv:
+        write_lock(venv_pins)
+        print(f"Actualizado {LOCK_PATH.relative_to(ROOT)} con las versiones del venv")
+        return 0
+
+    pins = read_lock()
+    check_lock_covers(pins, set(venv_pins))  # mismos paquetes; las versiones mandan las del bloqueo
+    print(f"Dependencias para Lambda ({PLATFORMS[0]}, Python {PYTHON_VERSION}), desde el bloqueo:")
     for name, version in sorted(pins.items()):
         print(f"  {name}=={version}")
 
@@ -222,4 +288,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

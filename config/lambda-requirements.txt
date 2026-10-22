@@ -1,0 +1,10 @@
+# Dependencias de la Lambda con versión EXACTA (las empaqueta scripts/build_lambda.py).
+# Se generan desde el venv local: python scripts/build_lambda.py --update-lock
+# certifi: la versión que instaló CodeBuild (2026.10.19 no la ve aún su pip; paso 6.7)
+certifi==2026.7.22
+charset-normalizer==3.5.2
+idna==3.20
+python-dotenv==1.2.4
+pyyaml==6.0.3
+requests==2.34.2
+urllib3==2.8.0
