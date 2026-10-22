@@ -444,3 +444,35 @@ Solución: generar *timestamps* y convertirlos a `date` en una subconsulta, ante
 - `Calidad: 69 comprobaciones, 0 fallan`.
 - Correlación cripto-bolsa del mismo día: BTC-SPY **0,33**, ETH-SPY **0,26**, SOL-SPY **0,34**. Si se desplaza la cripto un día, sale ≈ 0 (−0,00 y −0,06), así que **ya no queda desfase**.
 - Rentabilidades (1.897 filas) y volatilidad (1.665 filas) siguen idénticas a pandas.
+
+---
+
+## D-025 · *State* remoto en S3 con bloqueo nativo y bucket creado por un *bootstrap*
+**Fecha:** 2026-10-22 · **Fase:** 5 · **Modifica:** D-014 (*state* local)
+
+**Contexto:** el *state* estaba en `infra/terraform.tfstate`, dentro de OneDrive (riesgo de corrupción al sincronizar, sin copias y sin acceso para GitHub Actions en la Fase 6).
+
+**Opciones:**
+1. Bucket propio para el *state*, creado por una configuración aparte (`infra/bootstrap/`) con *state* local.
+2. Guardar el *state* en el bucket del data lake, bajo `tfstate/`.
+3. Gestionar el bucket del *state* dentro de `infra/` (se guardaría en sí mismo).
+4. Bloqueo con DynamoDB.
+
+**Decisión:** opción 1 con `use_lockfile = true` (sin DynamoDB).
+- **Bucket** `marketpulse-tfstate-<sufijo>`: versionado, bloqueo de acceso público, SSE-S3, `BucketOwnerEnforced`, "solo HTTPS", `prevent_destroy` y ciclo de vida (versiones no actuales a 90 días, marcadores de borrado huérfanos, *multipart* a 1 día). Etiqueta `stack = bootstrap`.
+- **`infra/bootstrap/`**: *state* local (ignorado por Git), `TF_DATA_DIR` propio y copia del *lock file* para usar el mismo proveedor (6.69.1).
+- ***Backend*** en `infra/versions.tf`: `key = "marketpulse/terraform.tfstate"`, `encrypt = true`, `use_lockfile = true`. El nombre del bucket va aparte (configuración parcial): `backend.hcl` ignorado y `backend.hcl.example` en Git.
+
+**Motivo:**
+- Opción 2: mezcla datos con la "llave" de la infraestructura, y un `destroy` del data lake arrastraría su propio *state*.
+- Opción 3: es el problema del huevo y la gallina.
+- Opción 4: la documentación oficial del *backend* S3 dice que el bloqueo con DynamoDB está obsoleto (*"deprecated and will be removed in a future minor version"*). Además, sería un servicio más que no está en la lista permitida.
+- Configuración parcial: un bloque `backend` no admite variables, y cada despliegue desde cero tiene un bucket con otro sufijo.
+
+**Coste:** unos 90 KB por versión del *state*, conservadas 90 días. Menos de 0,01 USD al mes.
+
+**Permisos (para la Fase 6):** según la documentación, `s3:ListBucket` sobre el bucket; `s3:GetObject` y `s3:PutObject` sobre `marketpulse/terraform.tfstate`; y `s3:GetObject`, `s3:PutObject` y `s3:DeleteObject` sobre `marketpulse/terraform.tfstate.tflock`.
+
+**Comprobado:** la migración copió los mismos recursos y *outputs* (el *state* remoto empieza con *serial* 1 y otro *lineage*); el `plan` dice `No changes`; y con dos `plan` a la vez, el segundo falla con `Error acquiring the state lock` (S3 412 *PreconditionFailed*).
+
+Fuente: [Terraform · Backend type: s3](https://developer.hashicorp.com/terraform/language/backend/s3)

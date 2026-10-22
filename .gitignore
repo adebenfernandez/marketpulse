@@ -17,6 +17,8 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 !*.tfvars.example
+# Configuración del backend de cada despliegue (nombre del bucket del state); se sube la plantilla
+backend.hcl
 # Planes guardados con `terraform plan -out`: pueden contener valores sensibles
 *.tfplan
 tfplan

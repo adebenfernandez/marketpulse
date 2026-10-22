@@ -1,0 +1,4 @@
+# Plantilla de la configuración del backend. Cópiala como backend.hcl (ignorado por Git) y pon el
+# nombre del bucket que muestra `terraform output` en infra/bootstrap/. Después:
+#   terraform init -backend-config=backend.hcl
+bucket = "marketpulse-tfstate-<sufijo>"

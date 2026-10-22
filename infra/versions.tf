@@ -9,4 +9,15 @@ terraform {
       version = "~> 6.69"       # cualquier 6.x a partir de 6.69, pero nunca 7.0 (podría romper)
     }
   }
+
+  # Dónde se guarda el state: en S3 (bucket creado por infra/bootstrap/), no en el disco local.
+  # Un bloque backend NO admite variables (Terraform lo lee antes que nada), así que el nombre del
+  # bucket se pasa aparte en `terraform init -backend-config=backend.hcl` ("configuración
+  # parcial"): cada despliegue desde cero tiene su propio bucket con otro sufijo aleatorio.
+  backend "s3" {
+    key          = "marketpulse/terraform.tfstate" # ruta del state dentro del bucket
+    region       = "eu-north-1"                    # tampoco admite var.region
+    encrypt      = true                            # el state y el candado se escriben cifrados
+    use_lockfile = true                            # candado nativo de S3 (<key>.tflock), sin DynamoDB
+  }
 }

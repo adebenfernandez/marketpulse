@@ -40,10 +40,16 @@ resource "aws_iam_role" "scheduler" {
 
 data "aws_iam_policy_document" "scheduler" {
   statement {
-    sid       = "InvocarSoloNuestrasLambdas"
-    effect    = "Allow"
-    actions   = ["lambda:InvokeFunction"]
-    resources = [for f in aws_lambda_function.this : f.arn] # las dos funciones, por ARN exacto
+    sid     = "InvocarSoloNuestrasLambdas"
+    effect  = "Allow"
+    actions = ["lambda:InvokeFunction"]
+    # Las dos funciones, por ARN exacto. El ARN se CONSTRUYE con el nombre en lugar de leerlo de
+    # aws_lambda_function.this: si no, cada cambio en una Lambda (p. ej. código nuevo) deja este
+    # data "pendiente" hasta el apply y el plan muestra un cambio falso en la política (Fase 5)
+    resources = [
+      for name in values(local.lambda_functions) :
+      "arn:aws:lambda:${local.region}:${local.account_id}:function:${name}"
+    ]
   }
 }
 
