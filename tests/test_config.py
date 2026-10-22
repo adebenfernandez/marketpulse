@@ -5,7 +5,7 @@ from marketpulse.common.config import ConfigError, load_watchlist, parse_watchli
 
 def test_la_watchlist_real_se_carga():
     wl = load_watchlist()  # config/watchlist.yaml (pytest se ejecuta desde la raíz)
-    assert wl.fx.base == "EUR"
+    assert wl.fx.base == "USD"  # ROTO A PROPÓSITO (6.3): no fusionar
     assert "USD" in wl.fx.quotes
     assert [a.symbol for a in wl.crypto.assets] == ["BTC", "ETH", "SOL"]
     assert len(wl.stocks.assets) >= 3
