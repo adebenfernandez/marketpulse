@@ -83,7 +83,7 @@ data "aws_iam_policy_document" "ingest" {
     sid       = "AvisarDeFallos"
     effect    = "Allow"
     actions   = ["sns:Publish"] # destino de fallo de la invocación asíncrona (lambda.tf)
-    resources = [data.aws_sns_topic.alertas.arn]
+    resources = [local.alertas_topic_arn]
   }
 }
 
@@ -136,7 +136,7 @@ data "aws_iam_policy_document" "transform" {
     sid       = "AvisarDeFallos"
     effect    = "Allow"
     actions   = ["sns:Publish"] # destino de fallo de la invocación asíncrona (lambda.tf)
-    resources = [data.aws_sns_topic.alertas.arn]
+    resources = [local.alertas_topic_arn]
   }
 }
 

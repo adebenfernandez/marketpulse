@@ -27,5 +27,5 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   # la alarma pasaría a "datos insuficientes" o, peor, a ALARM, cada pocos minutos
   treat_missing_data = "notBreaching"
 
-  alarm_actions = [data.aws_sns_topic.alertas.arn] # al pasar a ALARM -> email
+  alarm_actions = [aws_sns_topic.alertas.arn] # al pasar a ALARM -> email
 }

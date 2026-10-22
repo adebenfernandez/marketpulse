@@ -1,0 +1,3 @@
+# Plantilla de variables. Cópiala como terraform.tfvars (ignorado por Git) y rellénala.
+# Terraform carga terraform.tfvars solo, sin pasar ningún parámetro.
+alert_email = "tu-email@ejemplo.com"

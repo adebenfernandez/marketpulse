@@ -78,6 +78,8 @@ Fuente: [Managed policies for your organization](https://docs.aws.amazon.com/acc
 
 **Motivo:** queremos vigilar lo que costaría de verdad el consumo, independientemente de quién lo pague.
 
+**Actualización (2026-10-22, Fase 5, paso 5.6):** el inventario del paso 5.1 demostró que el filtro **no se había guardado** (API y consola: "Filtros incluidos: Ninguno") y que faltaba la alerta del 100 %. El presupuesto se importó a Terraform (`infra/budgets.tf`) con el filtro escrito como código: `filter_expression { not { dimensions { key = "RECORD_TYPE", values = ["Credit"] } } }`. Con `metrics = ["UnblendedCost"]` no se puede usar el bloque `cost_types` (`include_credit`), según la documentación del proveedor. Comprobado: el gasto real del mes pasó de 0,00 a 0,009 USD (los créditos lo estaban tapando) y hay 3 alertas (50/80/100 %) hacia el tema SNS. Desde ahora, cualquier cambio manual en el presupuesto lo detecta `terraform plan`.
+
 ---
 
 ## D-006 · El proyecto sigue en OneDrive, pero el entorno virtual va fuera

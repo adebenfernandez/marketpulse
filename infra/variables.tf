@@ -11,3 +11,11 @@ variable "project" {
   type        = string
   default     = "marketpulse"
 }
+
+# Sin valor por defecto: cada despliegue pone el suyo en terraform.tfvars (ignorado por Git;
+# plantilla en terraform.tfvars.example), porque el repositorio será público
+variable "alert_email" {
+  description = "Email que recibe las alertas del tema SNS (presupuesto, alarmas y fallos de Lambda)"
+  type        = string
+  sensitive   = true # Terraform lo oculta en el plan y en los logs: (sensitive value)
+}

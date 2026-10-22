@@ -71,12 +71,6 @@ resource "aws_lambda_function" "this" {
 
 # --- Invocación asíncrona (la que usa EventBridge Scheduler): reintentos y destino de fallo ---
 
-# Tema SNS de alertas creado a mano en la Fase 0 (D-004). Terraform solo lo LEE; se importará en la
-# Fase 5 para gestionarlo también como código
-data "aws_sns_topic" "alertas" {
-  name = "${var.project}-alertas"
-}
-
 resource "aws_lambda_function_event_invoke_config" "this" {
   for_each = aws_lambda_function.this
 
@@ -91,7 +85,7 @@ resource "aws_lambda_function_event_invoke_config" "this" {
   # Hace el papel de la "dead-letter queue" sin necesitar SQS
   destination_config {
     on_failure {
-      destination = data.aws_sns_topic.alertas.arn
+      destination = aws_sns_topic.alertas.arn
     }
   }
 
