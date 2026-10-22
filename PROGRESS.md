@@ -403,7 +403,7 @@ Plantilla para cada fase (se rellena al trabajarla):
 
 ## Fase 6 · CI/CD con GitHub Actions
 **Criterios de aceptación:**
-- [ ] Un pull request con un test roto falla en CI
+- [x] Un pull request con un test roto falla en CI — PR #2, *job* de Python en rojo (paso 6.3)
 - [ ] Un merge a `main` despliega sin ninguna clave de AWS guardada en GitHub
 
 ### Pasos completados
@@ -414,6 +414,12 @@ Plantilla para cada fase (se rellena al trabajarla):
   - Contenido: **no aparece** el número de cuenta, ningún email, claves de AWS (`AKIA`/`ASIA` o secretos de 40 caracteres), tokens de GitHub ni de Anthropic, claves privadas, el UUID de la suscripción, los nombres completos de los buckets, ARN de sesiones ni el **valor real** de ninguna clave de `.env`.
   - Controles positivos (para comprobar que el escáner funciona): `marketpulse-alertas` → 7 apariciones; `<ID-CUENTA>` → 1; `336392948345` (cuenta pública de AWS que publica la capa de pandas) → 4.
   - **Corrección:** el *push* ya existía. `origin/main` está en `e018f86` (Fase 2), con `update by push` en el *reflog*: Alberto subió las fases 0-2. La nota "todavía sin `git push`" de la Fase 0 estaba desactualizada. Quedan **7 commits** por subir (`3f4d56c` → `67f0eeb`). El repositorio sigue siendo **privado** (la API pública de GitHub responde 404).
+  - Commit `e401b50` y `git push` (`e018f86..e401b50`), con permiso de Alberto.
+- Paso 6.3 — `.github/workflows/ci.yml` (PR hacia `main` y *push* a `main`, `permissions: contents: read`, `concurrency`, `ubuntu-24.04`, `timeout-minutes: 10`). *Job* `python`: Python 3.13 con caché de pip, `pip install -e ".[dev]"`, `ruff check`, `ruff format --check` y `pytest`. *Job* `terraform`: Terraform 1.16.6, `fmt -check -recursive`, y `init -backend=false -lockfile=readonly` + `validate` en `infra/` e `infra/bootstrap/`. Acciones fijadas por SHA: `actions/checkout` v7.0.1, `actions/setup-python` **v7.0.0** (la v7.1.0 se publicó el mismo día y se descartó por prudencia) y `hashicorp/setup-terraform` v4.0.1, con `persist-credentials: false`.
+  - En local, sin `.env` ni perfil de AWS: `145 passed`, ruff y formato correctos.
+  - **PR #1** (`fase6/ci`): Python ✅ en 34 s; **Terraform ❌ en 18 s**: `validate` → *"the cached package … does not match any of the checksums recorded in the dependency lock file"*. Causa: el *lock file* solo tenía la huella `h1:` de `windows_amd64`, y con `-lockfile=readonly` Terraform no puede añadir la de Linux. Arreglo: `terraform providers lock -platform=windows_amd64 -platform=linux_amd64 -platform=linux_arm64` en las dos configuraciones (+2 líneas `h1:` cada una, misma versión 6.69.1, `plan` local → `No changes`). Commit `0f898ef` → los dos *jobs* ✅. Fusionado por Alberto con *merge commit* (`e708023`).
+  - **PR #2** (`fase6/test-roto`, `assert wl.fx.base == "USD"` a propósito; en local `1 failed, 144 passed` y ruff correcto): **Python ❌ en 28 s** y Terraform ✅ en 26 s. **Criterio 1 cumplido.** El PR se cierra sin fusionar.
+  - Protección de `main`: regla creada por Alberto (status checks `Python (ruff + pytest)` y `Terraform (fmt + validate)`), pero GitHub la marca **"Not enforced"**: *"won't be enforced on this private repository until you move to a GitHub Team or Enterprise organization account"*. No se paga nada: se aplicará sola cuando el repositorio sea público (Fase 8). Mitigación mientras tanto: el *buildspec* de CodeBuild repetirá ruff y pytest antes de desplegar (paso 6.6).
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista
