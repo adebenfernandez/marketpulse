@@ -1,0 +1,142 @@
+# Conjunto de evaluación del agente text-to-SQL (paso 7.8, D-036).
+#
+# Cada caso tiene:
+#   question       la pregunta, tal y como la escribiría un usuario
+#   reference_sql  la SQL "correcta", escrita y revisada a mano. Se ejecuta EN EL MOMENTO de evaluar
+#                  (los datos cambian cada día) y devuelve UNA fila
+#   checks         qué tiene que aparecer en la respuesta del agente, sacado de esa fila:
+#     - column: nombre de la columna de la SQL de referencia
+#       kind:   number (cifra) o text (un nombre, p. ej. un activo)
+#       percent: true si es una fracción que se suele decir en % (0.0639 → 6,39 %): vale 6,39 o 0,0639
+#       tolerance: margen. En % son puntos porcentuales; en cifras normales, relativo (0.002 = 0,2 %)
+#     Las cifras se comparan en valor absoluto: "bajó un 2 %" y "-2 %" cuentan igual.
+# Un caso es correcto si TODAS sus comprobaciones se cumplen y el resultado es "respondida".
+
+- id: q01
+  question: ¿Cuál fue la rentabilidad de BTC en septiembre de 2026?
+  reference_sql: |
+    SELECT monthly_return FROM v_monthly_summary
+    WHERE asset = 'BTC' AND month = DATE '2026-09-01'
+  checks:
+    - {column: monthly_return, kind: number, percent: true, tolerance: 0.1}
+
+- id: q02
+  question: ¿Qué activo tuvo la mayor rentabilidad mensual en agosto de 2026?
+  reference_sql: |
+    SELECT asset FROM v_monthly_summary
+    WHERE month = DATE '2026-08-01' AND monthly_return IS NOT NULL
+    ORDER BY monthly_return DESC LIMIT 1
+  checks:
+    - {column: asset, kind: text}
+
+- id: q03
+  question: ¿Cuál fue el precio de cierre de SPY el 20 de octubre de 2026?
+  reference_sql: |
+    SELECT price FROM fact_daily_price WHERE asset = 'SPY' AND "date" = DATE '2026-10-20'
+  checks:
+    - {column: price, kind: number, tolerance: 0.001}
+
+- id: q04
+  question: ¿Qué activo es el más volátil ahora mismo, según la volatilidad anualizada a 30 sesiones?
+  reference_sql: |
+    WITH ultimo AS (
+      SELECT asset, annualized_volatility_30,
+             row_number() OVER (PARTITION BY asset ORDER BY "date" DESC) AS rn
+      FROM v_rolling_volatility_30d
+    )
+    SELECT asset FROM ultimo WHERE rn = 1 ORDER BY annualized_volatility_30 DESC LIMIT 1
+  checks:
+    - {column: asset, kind: text}
+
+- id: q05
+  question: ¿Cuál es la volatilidad anualizada a 30 sesiones de ETH en su último dato disponible?
+  reference_sql: |
+    SELECT annualized_volatility_30 FROM v_rolling_volatility_30d
+    WHERE asset = 'ETH' ORDER BY "date" DESC LIMIT 1
+  checks:
+    - {column: annualized_volatility_30, kind: number, percent: true, tolerance: 0.15}
+
+- id: q06
+  question: ¿Qué correlación tienen BTC y ETH en los últimos 90 días?
+  reference_sql: |
+    SELECT correlation FROM v_correlation_matrix WHERE asset_a = 'BTC' AND asset_b = 'ETH'
+  checks:
+    - {column: correlation, kind: number, percent: true, tolerance: 1.0}
+
+- id: q07
+  question: De todas las parejas de activos distintos, ¿cuáles dos tienen la correlación más baja en los últimos 90 días?
+  reference_sql: |
+    SELECT asset_a, asset_b FROM v_correlation_matrix
+    WHERE asset_a < asset_b ORDER BY correlation ASC LIMIT 1
+  checks:
+    - {column: asset_a, kind: text}
+    - {column: asset_b, kind: text}
+
+- id: q08
+  question: ¿Cuántas sesiones cotizó SPY en septiembre de 2026?
+  reference_sql: |
+    SELECT sessions FROM v_monthly_summary WHERE asset = 'SPY' AND month = DATE '2026-09-01'
+  checks:
+    - {column: sessions, kind: number, tolerance: 0}
+
+- id: q09
+  question: ¿Cuál fue la peor rentabilidad diaria de SOL en septiembre de 2026?
+  reference_sql: |
+    SELECT min(simple_return) AS peor FROM v_daily_returns
+    WHERE asset = 'SOL' AND "date" BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'
+  checks:
+    - {column: peor, kind: number, percent: true, tolerance: 0.1}
+
+- id: q10
+  question: ¿Cuál fue el tipo de cambio EUR/USD más alto de 2026?
+  reference_sql: |
+    SELECT max(price) AS maximo FROM fact_daily_price WHERE asset = 'EUR/USD' AND year = 2026
+  checks:
+    - {column: maximo, kind: number, tolerance: 0.0005}
+
+- id: q11
+  question: ¿Cuántas criptomonedas sigue MarketPulse y cuáles son?
+  reference_sql: |
+    SELECT count(*) AS n, array_join(array_agg(asset ORDER BY asset), ',') AS lista
+    FROM dim_asset WHERE asset_class = 'crypto'
+  checks:
+    - {column: n, kind: number, tolerance: 0}
+    - {column: lista, kind: text}
+
+- id: q12
+  question: ¿Cuántos días subió BTC en septiembre de 2026?
+  reference_sql: |
+    SELECT count(*) AS dias FROM v_daily_returns
+    WHERE asset = 'BTC' AND simple_return > 0
+      AND "date" BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'
+  checks:
+    - {column: dias, kind: number, tolerance: 0}
+
+- id: q13
+  question: ¿Qué ETF tuvo la mejor rentabilidad en el tercer trimestre de 2026 (de julio a septiembre)?
+  reference_sql: |
+    WITH cierres AS (
+      SELECT asset,
+             max_by(price, "date") FILTER (WHERE "date" <= DATE '2026-06-30') AS cierre_junio,
+             max_by(price, "date") FILTER (WHERE "date" <= DATE '2026-09-30') AS cierre_septiembre
+      FROM v_daily_returns WHERE asset_class = 'equity'
+      GROUP BY asset
+    )
+    SELECT asset FROM cierres ORDER BY cierre_septiembre / cierre_junio DESC LIMIT 1
+  checks:
+    - {column: asset, kind: text}
+
+- id: q14
+  question: ¿Cuánto ha subido o bajado BTC en lo que va de octubre de 2026?
+  reference_sql: |
+    SELECT monthly_return FROM v_monthly_summary
+    WHERE asset = 'BTC' AND month = DATE '2026-10-01'
+  checks:
+    - {column: monthly_return, kind: number, percent: true, tolerance: 0.1}
+
+- id: q15
+  question: ¿Cuál es el precio medio de ETH en lo que llevamos de 2026?
+  reference_sql: |
+    SELECT avg(price) AS media FROM fact_daily_price WHERE asset = 'ETH' AND year = 2026
+  checks:
+    - {column: media, kind: number, tolerance: 0.005}

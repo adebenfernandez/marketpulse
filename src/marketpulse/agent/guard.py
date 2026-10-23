@@ -63,6 +63,14 @@ FORBIDDEN_NODES = (
 )
 
 
+# Códigos que indican un intento de hacer algo NO permitido (escribir, varias sentencias, otras
+# tablas). El resto (vacía, demasiado larga, no se puede analizar, LIMIT raro) son errores técnicos
+# de la SQL: también se rechazan, pero no convierten la pregunta en "bloqueada" (paso 7.8, q13)
+SECURITY_CODES = frozenset(
+    {"varias_sentencias", "no_es_select", "operacion_prohibida", "tabla_no_permitida"}
+)
+
+
 class SqlRejectedError(ValueError):
     """La SQL no ha pasado el validador. `code` es corto y estable (para el registro y tests)."""
 

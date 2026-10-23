@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 import anthropic
 
 from marketpulse.agent.audit import AuditLog, AuditRecord
+from marketpulse.agent.guard import SECURITY_CODES
 from marketpulse.agent.tools import TOOL_DEFINITIONS, AgentTools
 from marketpulse.agent.usage import TokenUsage
 
@@ -206,8 +207,12 @@ def _parse_final(response) -> dict:
 
 
 def _outcome(final: dict, tools: AgentTools) -> str:
-    """Lo más grave manda: un bloqueo del validador pesa más que una negativa del modelo."""
-    if any(a.block_code for a in tools.attempts):
+    """Lo más grave manda: un bloqueo de SEGURIDAD pesa más que una negativa del modelo.
+
+    Un rechazo técnico (p. ej. SQL mal escrita, que el modelo corrige en la vuelta siguiente) no
+    cuenta como bloqueo: queda en `queries` del registro, pero la pregunta puede acabar respondida.
+    """
+    if any(a.block_code in SECURITY_CODES for a in tools.attempts):
         return "bloqueada"
     if final.get("refused"):
         return "rechazada"
@@ -225,7 +230,7 @@ def _fill_record(record: AuditRecord, answer: AgentAnswer, tools: AgentTools) ->
     if tools.attempts:
         last = tools.attempts[-1]
         record.sql_proposed, record.sql_executed = last.sql_proposed, last.sql_executed
-    blocked = next((a for a in tools.attempts if a.block_code), None)
+    blocked = next((a for a in tools.attempts if a.block_code in SECURITY_CODES), None)
     if blocked:
         record.sql_proposed = blocked.sql_proposed
         record.block_code, record.block_reason = blocked.block_code, blocked.block_reason
