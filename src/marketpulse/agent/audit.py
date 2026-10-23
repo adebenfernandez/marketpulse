@@ -51,6 +51,7 @@ class AuditRecord:
     usage: dict | None = None  # TokenUsage.as_dict()
     elapsed_ms: int | None = None
     detail: str | None = None  # tipo de error o motivo del rechazo del modelo (corto)
+    queries: list[dict] = field(default_factory=list)  # todos los intentos de run_query (7.7)
 
 
 def _clip(value):

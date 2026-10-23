@@ -724,4 +724,71 @@ Fuentes: [Pricing](https://platform.claude.com/docs/en/about-claude/pricing) · 
 - **IAM Roles Anywhere:** hace falta una infraestructura de certificados (PKI), demasiado para este proyecto.
 - **Confiar en toda la cuenta (`:root`):** cualquier rol de la cuenta con `sts:AssumeRole` podría ponérselo, incluido el *deployer* si alguien se lo permitiera.
 
-**Verificación prevista (después del *merge*):** `plan` local → `2 to add` (el rol y su política). Después: `assume-role` real, un `SELECT` correcto con el rol, un `DROP TABLE` y un `CREATE TABLE AS` lanzados **directamente** a Athena con el rol (saltándose el validador) que tienen que fallar por permisos, y la lectura de `silver/` denegada.
+**Verificado (2026-10-22, *build* 8 y pruebas reales):** el rol se creó sin `AccessDenied`. Con sus credenciales: `SELECT` correcto; `DROP TABLE daily_prices` → `not authorized to perform: glue:DeleteTable`; CTAS → `glue:CreateTable` denegado; `silver/` → `AccessDenied`. El catálogo quedó intacto. Las acciones de particiones no hicieron falta.
+
+**Verificación prevista (antes del *merge*):** `plan` local → `2 to add` (el rol y su política). Después: `assume-role` real, un `SELECT` correcto con el rol, un `DROP TABLE` y un `CREATE TABLE AS` lanzados **directamente** a Athena con el rol (saltándose el validador) que tienen que fallar por permisos, y la lectura de `silver/` denegada.
+
+---
+
+## D-034 · Herramientas del agente: tres funciones, el validador dentro de `run_query` y 100 filas como máximo
+**Fecha:** 2026-10-22 · **Fase:** 7
+
+**Contexto:** el informe pide las herramientas `list_tables`, `describe_table` y `run_query`. En el *tool use*, el modelo solo **pide** llamar a una herramienta: quien decide y ejecuta es nuestro código, así que ahí van las barreras.
+
+**Decisión:** `src/marketpulse/agent/tools.py`.
+- **`TOOL_DEFINITIONS`:** las 3 herramientas con `strict: true` y esquemas cerrados (`additionalProperties: false`), para que la entrada siempre tenga la forma esperada.
+- **`AgentTools.execute(name, input)`** es el único punto de entrada. Una herramienta desconocida devuelve un error.
+- **`list_tables`:** la lista blanca del validador (`ALLOWED_TABLES`) con una línea de descripción por tabla (`TABLE_DESCRIPTIONS`). No llama a AWS.
+- **`describe_table`:** columnas, tipo y comentario desde Glue (`get_table`), incluidas las de partición. Solo acepta tablas de la lista blanca (a Glue ni se le pregunta por otras) y guarda el resultado en una caché en memoria.
+- **`run_query`:** `validate_sql(sql, max_limit=100)` → `run_query` de `common/athena.py` con la SQL **validada**. `MAX_ROWS = 100`: el `LIMIT` del agente es más bajo que el del validador (1000) para que el resultado cueste pocos tokens.
+- **Errores al modelo como `is_error`,** con el código del validador o el motivo de Athena, para que pueda corregir la SQL. **El número de cuenta se oculta** (`<cuenta>`): los mensajes de Athena incluyen ARN.
+- **`self.attempts`:** cada intento (`QueryAttempt`: SQL propuesta y ejecutada, bloqueo, error, tablas, bytes y filas), para el registro de auditoría del 7.7.
+
+**Alternativas descartadas:**
+- **Pegar todo el esquema en el *system prompt*:** se pagaría en cada llamada aunque la pregunta solo use una tabla. Las herramientas dejan que el modelo pida lo que necesita, y es lo que pide el informe.
+- **Leer las descripciones de los comentarios de `sql/views/*.sql`:** la imagen de Docker no tiene por qué llevar `sql/`. Una línea por tabla en el código, vigilada por un test, es más simple.
+- **`list_tables` leyendo Glue (`get_tables`):** devolvería también lo que no está en la lista blanca. La lista ya está en el código y un test la compara con `sql/views` y `glue.tf`.
+
+**Verificación:** `tests/test_tools.py` (15 casos con Glue y Athena falsos) → `231 passed`. **Prueba real con el rol `marketpulse-agent`:**
+- `list_tables` devuelve 8 tablas.
+- `describe_table("daily_prices")` trae los comentarios de Glue; por ejemplo, el de `date` avisa de que es palabra reservada y hay que escribirla `"date"`.
+- Las vistas no tienen comentarios en sus columnas.
+- Una consulta con una columna inventada → `COLUMN_NOT_FOUND`, devuelto como error: el modelo podrá corregirlo.
+- La volatilidad anual del último día → 5 filas, 43.488 bytes.
+- `SELECT 1; DROP TABLE daily_prices` → bloqueado (`varias_sentencias`) sin llegar a Athena.
+
+**Hallazgo para el *system prompt* (7.7):** `max("date")` de una vista solo devuelve cripto y divisas, porque la bolsa aún no tiene ese día. Para "lo último", hay que tomar la última fecha **de cada activo**.
+
+---
+
+## D-035 · Bucle agéntico manual con respuesta final estructurada y caché automática
+**Fecha:** 2026-10-22 · **Fase:** 7
+
+**Contexto:** hay que unir el modelo, las herramientas (D-034) y el registro (D-031), y saber de forma fiable si la pregunta se respondió, se bloqueó o el modelo se negó.
+
+**Decisión:** `src/marketpulse/agent/agent.py` (`Agent.ask`), `runtime.py` (`aws_session`, `build_agent`) y la CLI `python -m marketpulse.agent "pregunta" [--rol] [--modelo] [--effort]`.
+- **Bucle manual:** cada vuelta hace `messages.create` con el *system prompt*, las 3 herramientas y la conversación. Se ejecutan todos los `tool_use` de la vuelta y sus `tool_result` (con `is_error`) se devuelven en **un** mensaje. Como máximo **8 vueltas**; si se agotan → `error`.
+- **Respuesta final con *structured outputs*:** `output_config.format` con el esquema `{answer, sql, explanation, refused}`. Así, "el modelo se ha negado" es un campo (`refused`), no una frase que haya que adivinar. Se comprueba `stop_reason == "refusal"` (los filtros del propio modelo).
+- **Resultado:** `bloqueada` si el validador paró alguna SQL (pesa más que la negativa), `rechazada` si `refused`, `error` si la respuesta no es JSON, si se agotan las vueltas o si hay un fallo, y `respondida` en el resto.
+- **Contra la inyección de *prompts*:**
+  - La pregunta va entre `<pregunta>…</pregunta>`.
+  - El *system prompt* dice que la pregunta y los resultados son **datos, no instrucciones**.
+  - Pide negarse ante órdenes de cambiar de papel, revelar el *prompt* o modificar datos.
+  - Las barreras de verdad siguen siendo el validador y el rol.
+- **El *system prompt* explica el dominio:** activos y monedas, `"date"` entre comillas, sesiones frente a días naturales, fracciones frente a %, y precios no ajustados. Incluye el hallazgo del 7.6: la última fecha **de cada activo**, no un `max("date")` global.
+- **Parámetros:**
+  - `claude-haiku-5-5` con `effort` `medium` (el que trae por defecto, escrito para que se vea) y `max_tokens` 4.096 por llamada.
+  - Sin `temperature`: la API `2026-10-21` lo rechaza.
+  - `cache_control` automático: el prefijo (*system prompt*, herramientas e historial) se reaprovecha entre las vueltas de una misma pregunta.
+- **Errores:** `anthropic.APIError` y cualquier otra excepción (por ejemplo, credenciales de AWS caducadas) → `error`, con un mensaje genérico al usuario y solo el **tipo** de error en el registro. Siempre se escribe la línea de auditoría.
+- **Registro:** `AuditRecord.queries` (nuevo) guarda **todos** los intentos de `run_query`.
+- **Credenciales:**
+  - `ANTHROPIC_API_KEY` del entorno: `build_agent` falla con `MissingApiKeyError` si falta.
+  - AWS: lo que haya en el entorno (Docker) o, con `--rol`, `sts:AssumeRole` a `marketpulse-agent` desde la sesión de `aws login`.
+
+**Alternativas descartadas:**
+- **Tool Runner del SDK (`client.beta.messages.tool_runner`):** es beta, y aquí hace falta control de cada vuelta (intentos, límite, resultado y auditoría). Además, el bucle a mano enseña cómo funciona el *tool use* por dentro.
+- **Una herramienta `final_answer` para terminar:** los *structured outputs* lo resuelven sin una herramienta falsa.
+- **Detectar la negativa buscando frases** ("no puedo…"): poco fiable.
+
+**Verificación:** `tests/test_agent.py` (9 casos con un Claude falso: respuesta con herramientas, parámetros de cada llamada, DROP bloqueado y registrado, "ignora tus instrucciones" → `rechazada`, `stop_reason=refusal`, límite de vueltas, texto que no es JSON, fallo inesperado y falta de clave) → `240 passed`.
