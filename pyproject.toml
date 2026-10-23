@@ -51,6 +51,9 @@ src = ["src", "tests"]
 # B: bugs habituales · UP: sintaxis moderna de Python
 select = ["E", "W", "F", "I", "B", "UP"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["marketpulse", "api"]  # api/ (FastAPI, Fase 7) también es código nuestro
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
