@@ -36,6 +36,8 @@ dev = [
     # boto3 necesita awscrt para leer las credenciales de `aws login` (D-019). Solo en local:
     # en Lambda y en GitHub Actions las credenciales vienen de un rol
     "botocore[crt]",
+    # Cobertura de tests (Fase 8, D-038). Fijada: la 7.17.0 era del día anterior al elegirla
+    "coverage==7.16.2",
 ]
 
 [tool.setuptools.packages.find]
@@ -57,3 +59,12 @@ known-first-party = ["marketpulse", "api"]  # api/ (FastAPI, Fase 7) también es
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+# Cobertura: `coverage run -m pytest` y después `coverage report` (D-038)
+[tool.coverage.run]
+source = ["src/marketpulse"]  # el criterio de éxito mide src/; tests, api/ y scripts/ no cuentan
+branch = true                 # además de líneas, mide si cada `if` se ha probado por los dos lados
+
+[tool.coverage.report]
+show_missing = true           # lista las líneas sin probar de cada fichero
+fail_under = 70               # `coverage report` devuelve código 2 por debajo del 70 %
