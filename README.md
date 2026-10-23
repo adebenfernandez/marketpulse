@@ -190,3 +190,17 @@ Excepciones, a propósito:
 (`force_destroy = false`): primero hay que vaciarlo. El bucket del *state* (`infra/bootstrap/`) va
 el último: tiene `prevent_destroy`, así que hay que quitar esa línea antes de su `terraform destroy`,
 y vaciar sus versiones (el versionado las conserva).
+
+## Ideas futuras
+
+Mejoras propuestas durante el proyecto, todavía sin hacer (fuera del alcance de su fase):
+
+- **Agente:** distinguir una tabla que **no existe** (el modelo se la ha inventado) de una tabla de
+  **otra base de datos**. Hoy las dos dan `tabla_no_permitida` y la pregunta cuenta como `bloqueada`
+  aunque después se responda bien (repaso de la Fase 7).
+- **Agente:** conservar el registro de auditoría del contenedor montando `logs/` como volumen, y
+  renovar solas las credenciales temporales cuando caducan (hoy: volver a lanzar el script).
+- **Evaluación:** más preguntas, y ejecutarla en CI con un presupuesto de gasto limitado.
+- **Ingesta:** revisar el *timeout* de 10 s de Frankfurter (tardó 9,2 s a primera hora, Fase 7).
+- **Transformación:** bajar la memoria de la Lambda (usa ~250 de 1.024 MB), midiendo antes el
+  efecto en la duración (Fase 3).
