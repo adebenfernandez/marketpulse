@@ -137,6 +137,34 @@ cd infra; terraform plan; cd ..          # esperado: "No changes"
 A partir de aquí, EventBridge Scheduler ejecuta la ingesta a las 06:00 UTC y la transformación a
 las 06:30 UTC todos los días.
 
+## Agente text-to-SQL (Fase 7)
+
+Responde preguntas en español sobre los datos con la API de Claude (Haiku 5.5), consultando
+Athena con un rol de **solo lectura** (`marketpulse-agent`) y credenciales temporales de 1 hora.
+Necesita `ANTHROPIC_API_KEY` en `.env` y una sesión de `aws login`.
+
+```powershell
+# En local (con --rol, los mismos permisos que en Docker)
+python -m marketpulse.agent "¿Qué activo ha sido más volátil en los últimos 30 días?" --rol
+
+# Evaluación: 15 preguntas + 6 ataques (unos 0,015 USD); informe en logs/evals/
+python evals/run_evals.py
+
+# API en Docker, en http://127.0.0.1:8000 (GET /health, POST /ask {"question": "..."})
+docker build -f api/Dockerfile -t marketpulse-agent:local .
+.\scripts\run_agent_docker.ps1
+```
+
+Barreras contra SQL peligrosa e inyección de *prompts* (defensa en profundidad):
+1. El *system prompt* (la pregunta es un dato, no una orden).
+2. El validador `agent/guard.py` (un único `SELECT` sobre tablas permitidas, analizado con sqlglot).
+3. El rol de solo lectura y su techo de permisos.
+4. El límite de 100 MB por consulta del *workgroup*.
+5. El registro de auditoría (`logs/agent_audit.jsonl`, o `docker logs`).
+
+Si cambian las dependencias del agente, hay que regenerar `config/agent-requirements.txt` con
+`python scripts/lock_agent.py` (un test lo exige).
+
 ## Despliegue continuo (después del primer despliegue)
 
 Ya no se despliega desde el portátil. El flujo normal es:

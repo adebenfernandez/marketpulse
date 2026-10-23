@@ -1,0 +1,31 @@
+# Lo que NUNCA entra en el contexto de construcción de Docker (paso 7.9).
+# Lo primero: secretos. Aunque el Dockerfile no los copie, así ni siquiera llegan a Docker.
+.env
+.env.*
+!.env.example
+**/*.tfstate*
+**/*.tfvars
+infra/
+.terraform/
+*.pem
+
+# Datos, registros, construcciones y cachés
+data/
+logs/
+build/
+.git/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Lo que la imagen no necesita
+INFORME_PROYECTO.pdf
+docs/
+tests/
+evals/
+sql/
+scripts/
+.github/
+.claude/

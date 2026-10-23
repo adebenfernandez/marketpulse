@@ -1,0 +1,31 @@
+# Dependencias de la imagen Docker del agente, con versión EXACTA (api/Dockerfile).
+# Se generan desde el venv local: python scripts/lock_agent.py
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anthropic==2.1.0
+anyio==4.15.1
+boto3==1.43.115
+botocore==1.43.115
+click==8.5.0
+docstring-parser==0.18.0
+fastapi==0.159.1
+h11==0.16.0
+httpcore2==2.16.0
+httpx2==2.16.0
+idna==3.20
+jiter==0.17.0
+jmespath==1.1.0
+opentelemetry-api==1.45.1
+pydantic==2.14.1
+pydantic-core==2.50.1
+python-dateutil==2.9.0.post0
+s3transfer==0.19.3
+six==1.17.0
+sniffio==1.3.1
+sqlglot==30.24.0
+starlette==1.9.0
+truststore==0.10.5
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+urllib3==2.8.0
+uvicorn==0.54.0
