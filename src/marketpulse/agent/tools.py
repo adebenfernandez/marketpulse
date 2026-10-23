@@ -15,6 +15,8 @@ import json
 import re
 from dataclasses import dataclass
 
+from botocore.exceptions import ClientError
+
 from marketpulse.agent.guard import ALLOWED_TABLES, SqlRejectedError, validate_sql
 from marketpulse.common.athena import DATABASE, AthenaQueryError, run_query
 
@@ -176,7 +178,11 @@ class AgentTools:
         attempt.tables = validated.tables
         try:
             result = run_query(self.athena, validated.sql)
-        except AthenaQueryError as e:
+        except (AthenaQueryError, ClientError) as e:
+            # AthenaQueryError: la consulta empezó y terminó en FAILED. ClientError: Athena la
+            # rechazó al lanzarla (p. ej. InvalidRequestException por un error de sintaxis, como
+            # unas comillas tipográficas “date” en la evaluación del paso 7.8). En los dos casos,
+            # el modelo recibe el error y puede corregir la SQL
             attempt.error = str(e)  # completo en el registro local
             # Al modelo (y de ahí al usuario) sin números de cuenta: los mensajes de Athena
             # incluyen ARN como arn:aws:sts::123456789012:assumed-role/...

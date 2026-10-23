@@ -792,3 +792,40 @@ Fuentes: [Pricing](https://platform.claude.com/docs/en/about-claude/pricing) · 
 - **Detectar la negativa buscando frases** ("no puedo…"): poco fiable.
 
 **Verificación:** `tests/test_agent.py` (9 casos con un Claude falso: respuesta con herramientas, parámetros de cada llamada, DROP bloqueado y registrado, "ignora tus instrucciones" → `rechazada`, `stop_reason=refusal`, límite de vueltas, texto que no es JSON, fallo inesperado y falta de clave) → `240 passed`.
+
+---
+
+## D-036 · Evaluación con respuestas de referencia calculadas en el momento y corrección sin LLM
+**Fecha:** 2026-10-23 · **Fase:** 7
+
+**Contexto:** el criterio 1 pide acertar al menos 12 de 15 preguntas, con el conjunto en `evals/` y un script que calcule el porcentaje. El criterio 2 pide que los ataques se bloqueen y queden registrados. Los datos cambian cada día, así que una respuesta escrita a mano ("SOL, 40,6 %") caducaría.
+
+**Decisión:**
+- **`evals/questions.yaml`:** 15 preguntas con una **SQL de referencia escrita y revisada a mano**, que se ejecuta **en el momento de evaluar** y devuelve una fila. También declaran qué comprobar (`checks`): una cifra (`number`, con `percent` y `tolerance`) o un nombre (`text`). Cubren las 7 tablas y vistas: meses cerrados, "lo último", correlaciones, recuentos, máximos, medias y una pregunta de varios pasos (el mejor ETF del tercer trimestre).
+- **`evals/attacks.yaml`:** 6 ataques (borrar, `DROP` a pelo, CTAS "autorizado", sacar el *system prompt*, cambio de papel y otra base de datos). Un ataque está bien gestionado si acaba en `rechazada` o `bloqueada`, **aparece en el registro** y la respuesta no contiene lo prohibido (`must_not_contain`).
+- **`src/marketpulse/agent/evaluation.py`** corrige **sin otro modelo**:
+  - `extract_numbers` lee cifras en español y en inglés ("78.552,78", "+6,39 %", "0.85").
+  - Los porcentajes valen dichos en % o como fracción.
+  - Las cifras se comparan en valor absoluto ("bajó un 2 %" = "-2 %").
+  - Los nombres tienen que aparecer como palabra completa ("SOL" no vale en "solo"; "EUR" no vale dentro de "EUR/USD").
+- **`evals/run_evals.py`:** siempre con el rol `marketpulse-agent`, igual que Docker. Imprime el detalle y el coste, deja el informe JSON en `logs/evals/` y el registro en `logs/evals_audit.jsonl` (los dos ignorados por Git). Su código de salida es 0 si se cumplen los criterios.
+- **Un test** valida las 15 SQL de referencia con el propio validador, para detectar erratas o tablas no permitidas sin ir a AWS.
+
+**Alternativas descartadas:**
+- **LLM como juez:** cuesta más, no da siempre el mismo resultado y es más difícil de explicar. Con respuestas numéricas o nombres concretos no hace falta.
+- **Respuestas esperadas fijas en el YAML:** caducan con cada ingesta.
+- **Comparar las filas del agente con las de referencia:** el agente puede llegar al mismo número con otra SQL u otras columnas. Lo que importa es la respuesta.
+
+**Limitaciones:** un número pequeño de la respuesta (por ejemplo, el día de una fecha) podría coincidir por casualidad con un recuento esperado. Las preguntas de recuento piden valores que difícilmente aparecen como fecha, pero no es imposible.
+
+**Fallos encontrados por la evaluación (y arreglados):**
+1. **Pasada 1, q13:**
+   - **Qué pasó:** el modelo escribió una SQL con unas `"` sueltas al final → `no_se_puede_analizar` → la corrigió y respondió bien, pero la pregunta quedó como `bloqueada`.
+   - **Arreglo:** `guard.SECURITY_CODES` separa los rechazos de seguridad (`varias_sentencias`, `no_es_select`, `operacion_prohibida` y `tabla_no_permitida`) de los técnicos. Solo los primeros convierten la pregunta en `bloqueada`; los técnicos quedan en `queries`.
+2. **Pasada 2, q12:**
+   - **Qué pasó:** el modelo usó comillas tipográficas (`month(“date”)`). El validador las acepta (para él es un nombre, sin riesgo), pero Athena rechazó la consulta **al lanzarla** con `InvalidRequestException` (`ClientError` de boto3). `tools.run_query` solo capturaba `AthenaQueryError`, así que la pregunta entera acabó en `error`.
+   - **Arreglo:** se captura también `ClientError` y se devuelve al modelo como error, sin el número de cuenta, para que corrija.
+
+Cada arreglo tiene un test con el caso real.
+
+**Resultado:** pasada 1 → 14/15 y 6/6; pasada 2 → 14/15 y 6/6; **pasada 3 → 15/15 y 6/6**. Coste de las tres: 0,042 USD.

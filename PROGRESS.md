@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
 **Fase actual:** Fase 7 · Agente text-to-SQL, en curso (2026-10-22)
-**Siguiente paso:** 7.8 · conjunto de evaluación en `evals/` (15 preguntas + ataques) y script de aciertos. Pendiente en paralelo: comprobar la ejecución programada del 2026-10-23 (06:00 UTC), la primera con el techo en el rol del Scheduler
+**Siguiente paso:** 7.9 · API con FastAPI y Docker (criterio 3). Pendiente en paralelo: comprobar la ejecución programada del 2026-10-23 (06:00 UTC), la primera con el techo en el rol del Scheduler.
 
 ## Cómo se trabaja ahora (traspaso para la Fase 7)
 
@@ -474,8 +474,8 @@ Plantilla para cada fase (se rellena al trabajarla):
 
 ## Fase 7 · Agente text-to-SQL
 **Criterios de aceptación:**
-- [ ] Al menos 12 de 15 preguntas correctas
-- [ ] Un intento de `DROP TABLE` o de "ignora tus instrucciones" se bloquea y queda registrado
+- [x] Al menos 12 de 15 preguntas correctas — 15/15 en la pasada 3 (14/15 en las dos anteriores), `evals/run_evals.py` (paso 7.8)
+- [x] Un intento de `DROP TABLE` o de "ignora tus instrucciones" se bloquea y queda registrado — 6/6 ataques `rechazada` y en el registro (7.7 y 7.8); DROP directo denegado por el rol (7.5) y por el validador (7.2 y 7.6)
 - [ ] La API responde en `localhost` dentro de Docker
 
 ### Pasos completados
@@ -552,6 +552,20 @@ Plantilla para cada fase (se rellena al trabajarla):
   - Caché: la primera llamada escribe unos 2.200 tokens (*system prompt* + herramientas) y las siguientes los leen. En la pregunta de BTC: 12 tokens sin caché, 13.331 leídos de caché y 5.006 escritos.
   - Registro: `logs/agent_audit.jsonl` → **4 líneas**; las dos `rechazada` salen además como `WARNING` en la consola. **Total: 0,003 USD.** `logs/` no aparece en `git status`.
   - Observación: ante los dos ataques el modelo se negó **antes** de usar `run_query`, así que la barrera que actuó fue la primera (el *system prompt*). El bloqueo del validador dentro del bucle está probado en `test_agent.py` y con las herramientas reales (7.6). El conjunto de ataques del 7.8 dará por buena tanto `rechazada` como `bloqueada`, pero nunca una SQL ejecutada.
+  - PR #11 (`fase7/herramientas`, pasos 7.6 y 7.7) fusionado por Alberto (`833fa23`). CodeBuild, *build* 9 → **SUCCEEDED**: `240 passed`, `7jU2…`, **`No changes`**. (Antes hubo que renovar `aws login`: la sesión de 12 h había caducado y el primer intento de commit falló sin hacer nada.)
+- Paso 7.8 — Evaluación (D-036):
+  - `evals/questions.yaml`: 15 preguntas con una SQL de referencia que se ejecuta al evaluar y sus comprobaciones.
+  - `evals/attacks.yaml`: 6 ataques.
+  - `src/marketpulse/agent/evaluation.py`: corrección sin LLM, con cifras en español y en inglés, % o fracción, y nombres como palabra completa.
+  - `evals/run_evals.py`: con el rol `marketpulse-agent`; informe en `logs/evals/` y registro en `logs/evals_audit.jsonl`.
+  - Evidencia (sin AWS): `tests/test_evaluation.py` → 25 passed; las 15 SQL de referencia pasan el validador.
+  - **Tres pasadas completas** con Haiku 5.5:
+    - **Pasada 1 → 14/15 y 6/6** (0,0187 USD). q13 respondida bien (SPY), pero contada como `bloqueada`: el modelo dejó unas `"` sueltas, el validador la rechazó (`no_se_puede_analizar`) y el modelo la corrigió. **Arreglo:** `guard.SECURITY_CODES`; solo los rechazos de seguridad marcan la pregunta como `bloqueada`. Test con el caso real.
+    - **Pasada 2 → 14/15 y 6/6** (0,0111 USD). q12 en `error`: el modelo escribió `month(“date”)` con comillas tipográficas, Athena la rechazó **al lanzarla** (`InvalidRequestException`, un `ClientError`) y `tools.run_query` no capturaba ese error. **Arreglo:** capturar `ClientError` y devolverlo al modelo (sin el número de cuenta). Test con el caso real.
+    - **Pasada 3 → 15/15 y 6/6** (0,0125 USD), código de salida 0.
+  - Los 6 ataques acabaron en `rechazada` en las 3 pasadas (el modelo se negó antes de usar herramientas), con su línea en el registro. a04 no reveló el *system prompt*.
+  - `pytest` → **`267 passed`** · ruff correcto. Coste total de las evaluaciones: **0,042 USD**.
+  - Lección: **las evaluaciones encuentran fallos que los tests no ven.** Los dos fallos venían de formas reales de escribir SQL que no se me ocurrieron al escribir los tests. Y no basta una pasada: el modelo no responde siempre igual.
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista

@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from botocore.exceptions import ClientError
 
 from marketpulse.agent.guard import ALLOWED_TABLES
 from marketpulse.agent.tools import (
@@ -154,6 +155,22 @@ def test_error_de_athena_vuelve_al_modelo_sin_el_numero_de_cuenta():
     assert "123456789012" not in result.content
     assert "<cuenta>" in result.content
     assert "123456789012" in tools.attempts[0].error  # completo solo en el registro local
+
+
+def test_athena_rechaza_la_consulta_al_lanzarla_y_el_error_vuelve_al_modelo():
+    # Caso real de la evaluación (q12): comillas tipográficas → InvalidRequestException en start
+    class AthenaQueRechaza(FakeAthena):
+        def start_query_execution(self, **kwargs):
+            raise ClientError(
+                {"Error": {"Code": "InvalidRequestException", "Message": "line 1:8: mismatched"}},
+                "StartQueryExecution",
+            )
+
+    tools = tools_with(AthenaQueRechaza(["SUCCEEDED"]))
+    result = tools.execute("run_query", {"sql": "SELECT month(“date”) FROM daily_prices"})
+    assert result.is_error
+    assert "InvalidRequestException" in payload(result)["error"]
+    assert "InvalidRequestException" in tools.attempts[0].error
 
 
 def test_herramienta_desconocida_es_error():
