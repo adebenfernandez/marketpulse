@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 7 terminada (2026-10-23)
-**Siguiente paso:** comprobar la ejecución programada del 2026-10-23 (06:00 y 06:30 UTC), la primera con el techo en el rol del Scheduler; después, Fase 8 · Escaparate
+**Fase actual:** Fase 8 · Escaparate (empezada el 2026-10-23)
+**Siguiente paso:** permiso para medir la cobertura, respuesta al repaso de la Fase 7 y OK al plan de la Fase 8 (paso 8.0)
 
 ## Cómo se trabaja ahora (traspaso para la Fase 8)
 
@@ -11,7 +11,7 @@
 - **En local**, para Terraform: `$env:AWS_PROFILE = "marketpulse"; $env:TF_DATA_DIR = "C:\Users\deben\.terraform-data\marketpulse"` y `aws login --profile marketpulse` si la sesión ha caducado. `terraform.tfvars` y `backend.hcl` están en `infra/`, ignorados por Git.
 - **Lambda:** si cambian las dependencias de `pyproject.toml`, `python scripts/build_lambda.py --update-lock` (un test lo exige). El zip es reproducible (D-027).
 - **Para leer logs con Git Bash:** `MSYS_NO_PATHCONV=1` (si no, `/aws/...` se convierte en una ruta de Windows) y `PYTHONUTF8=1` para los logs de CodeBuild.
-- **Pendiente:** comprobar la ejecución programada del 2026-10-23 (ingesta 06:00 y transformación 06:30 UTC), la primera con el techo en el rol del Scheduler: `aws logs tail` de las dos Lambdas y el estado de las alarmas. La del 2026-10-22 ya está comprobada (paso 7.0) y fue anterior al techo.
+- ~~**Pendiente:** comprobar la ejecución programada del 2026-10-23~~ → comprobada en el paso 8.0: funcionó con el techo en el rol del Scheduler.
 - **Agente (Fase 7):** el código está en `src/marketpulse/agent/` (`guard`, `tools`, `agent`, `audit`, `usage`, `runtime` y `evaluation`), la API en `api/` y las evaluaciones en `evals/`. Se usa con `ANTHROPIC_API_KEY` en `.env` y `aws login`:
   - CLI: `python -m marketpulse.agent "..." --rol`
   - Evaluación: `python evals/run_evals.py` (unos 0,015 USD)
@@ -641,6 +641,24 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
 - [ ] El repositorio es público y no contiene ningún secreto (comprobado con una búsqueda en el historial)
 
 ### Pasos completados
+- Paso 8.0 — Comprobaciones previas (solo lectura, 2026-10-23 a las 11:20 UTC):
+  - **(a) Ejecución programada del 2026-10-23, la primera con el techo en el rol del Scheduler → correcta.** Ningún `AccessDenied`: el Scheduler pudo invocar las dos Lambdas.
+    - Ingesta 06:00:13 UTC: **Frankfurter dio `ReadTimeout` 3 veces seguidas** (10 s cada una) y respondió al 4.º intento (`200 en 68 ms`). CoinGecko `200`, SPY/VT/QQQ `200`. `failed: {}`, `S3: 5 subidos`. `REPORT Duration 44017 ms` (normalmente ~16 s), `Max Memory 112/256 MB`.
+    - Transformación 06:30:21 UTC: `pandas 3.0.5, pyarrow 24.0.0`, `bronze_downloaded: 24`, `Calidad: 69 comprobaciones, 0 fallan`, gold `1916 filas` (crypto 1095, fx 512, equity 309), `S3: 4 subidos, 4 sin cambios`. `Duration 2568 ms, Billed 4802 ms`.
+    - Métricas del día (`get-metric-statistics`, suma diaria): ingesta `Invocations 1, Errors 0`; transformación `Invocations 1, Errors 0`.
+    - Alarmas: `marketpulse-ingest-errores` `OK` (desde el 2026-10-22 19:35 UTC, tras la prueba del 6.5a) y `marketpulse-transform-errores` `OK`.
+    - **El riesgo de Frankfurter se ha materializado:** del 7,3 s (día 21) y 9,2 s (día 22) se pasa a 3 *timeouts*. Los reintentos lo han cubierto, pero si fallara también el 4.º intento, la ingesta acabaría en error. Mejora propuesta para "Ideas futuras" (no se toca en esta fase sin permiso).
+  - **(b) Días seguidos sin errores: 3** (ejecuciones programadas del 21, 22 y 23 de octubre, todas correctas; el `Errors 1` del día 22 fue la invocación manual del paso 6.5a). La primera programada fue la del 2026-10-21. El criterio de éxito (7 días) se cumpliría, como pronto, con la ejecución del **2026-10-27**.
+  - **(c) Gasto real:**
+    - AWS (`describe-budgets`, presupuesto que excluye créditos): **0,033 USD** en lo que va de octubre (actualizado a las 10:37 UTC). Budgets no da previsión todavía. Cost Explorer por API cuesta 0,01 USD por petición (página oficial de precios), así que no se ha usado sin permiso.
+    - API de Claude según `logs/`: **67 preguntas, 205 llamadas, 0,0453 USD** (`agent_audit.jsonl`: 4 preguntas, 0,0030 USD; `evals_audit.jsonl`: 63 preguntas, 0,0423 USD). Tokens: 544 de entrada sin caché, 42.037 de salida, 513.600 leídos de caché y 153.041 escritos. **No incluye** las 2 preguntas de la prueba de Docker (paso 7.9, ~0,002 USD), que se perdieron con `--rm`. La cifra oficial está en la consola de Anthropic.
+    - Total aproximado: **< 0,09 USD** (menos de 0,10 €). `docs/COSTES.md` todavía no existe (tarea de esta fase).
+  - **(d) Cobertura de tests:** sin medir. No hay ninguna herramienta de cobertura instalada; hace falta permiso para añadir una (propuesta: `coverage`, en `dev`). → Medida en el paso 8.1.
+  - **(e) Repaso de la Fase 7:** pregunta nueva hecha a Alberto (¿podría el agente escribir en `gold/` si alguien añade por error `s3:PutObject` a su política?). **Pendiente de su respuesta.**
+- Plan aprobado por Alberto (2026-10-23): 8.1 cobertura · 8.2 atribuciones y términos de las fuentes · 8.3-8.4 dashboard en Streamlit (opción A: rol `marketpulse-agent` en el propio proceso) · 8.5 `docs/COSTES.md` · 8.6 README escaparate y prueba del recién llegado · 8.7 guion del vídeo, post y CV · 8.8 revisión de secretos y repositorio público · 8.9 cierre. Permiso para `coverage==7.16.2` en `dev`.
+- Paso 8.1 — Cobertura de tests (D-038), rama `fase8/cobertura`: `coverage==7.16.2` en `dev` y `[tool.coverage.*]` en `pyproject.toml` (`source = src/marketpulse`, ramas, `show_missing`, `fail_under = 70`). Sin cambios en AWS.
+  - Evidencia: `coverage run -m pytest` → `275 passed` · `coverage report` → **TOTAL 92 %** (1.464 sentencias, 115 sin ejecutar; 282 ramas, 19 parciales), código 0 · con `--fail-under=95` → código 2 · ruff y formato correctos · `build_lambda.py` → **`7jU2NQ15…`, sin cambios** (`coverage` no entra en el zip).
+  - Lo menos cubierto: los `__main__.py` (0 %) y las funciones de entrada que crean clientes reales de AWS (`main()` de `athena.py` y `backfill.py`, `aws_session(assume_role=True)`, los `handler()`). Se prueban con ejecuciones reales. **Criterio de éxito 4 cumplido.**
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista
