@@ -54,7 +54,8 @@ src = ["src", "tests"]
 select = ["E", "W", "F", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["marketpulse", "api"]  # api/ (FastAPI, Fase 7) también es código nuestro
+# api/ (FastAPI, Fase 7) y dashboard/ (Streamlit, Fase 8) también son código nuestro
+known-first-party = ["marketpulse", "api", "dashboard"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
