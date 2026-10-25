@@ -935,3 +935,26 @@ Casi todo lo que falta es el mismo tipo de código: los **puntos de entrada** qu
 - **CoinGecko y el almacenamiento:** el proyecto guarda en el bucket privado un año de histórico (D-022) y una foto diaria. Los términos no animan a guardar datos, aunque lo admiten si se refresca cada 24 h (la ingesta es diaria). El uso es personal, sin redistribución y sin fines comerciales.
 - **Capturas del README:** muestran algunas cifras de precios. Es una demostración del proyecto, sin fines comerciales, con la atribución al lado.
 - **Si algún día el dashboard se despliega en público** (idea del informe), hay que volver a revisar los términos de CoinGecko (redistribución) y de Alpha Vantage (acceso de terceros), que podrían exigir un plan de pago.
+
+---
+
+## D-040 · Dashboard: capa de datos aparte, consultas fijas por el validador y rol de solo lectura en el propio proceso
+**Fecha:** 2026-10-25 · **Fase:** 8
+
+**Contexto:** el dashboard (pasos 8.3 y 8.4) necesita precios y volatilidad desde Athena, y una caja de preguntas al agente. Todo de solo lectura y sin claves permanentes.
+
+**Opciones para las credenciales:**
+- **(A)** El rol `marketpulse-agent` dentro del propio proceso: `aws_session(assume_role=True)`, como `python -m marketpulse.agent --rol`. Los gráficos usan Athena y la caja de preguntas usa `Agent.ask`.
+- **(B)** La caja de preguntas llama a `POST /ask` de la API en Docker. Pero los gráficos siguen necesitando Athena, así que harían falta las credenciales del rol igualmente: dos procesos y dos flujos de credenciales para el mismo resultado.
+
+**Decisión (aprobada por Alberto en el plan de la fase):** A.
+- **`dashboard/data.py`** (capa de datos, **sin Streamlit**): consultas **fijas** sobre `daily_prices`, `v_rolling_volatility_30d` y `dim_asset`. Lo único variable es `days`, que se comprueba (entero de 1 a 365, sin `bool`) antes de formatear la SQL. Los filtros por activo se hacen en pandas, no en SQL.
+- **Pasan por `guard.validate_sql`** con `max_limit = 5000`, aunque las escribamos nosotros: así un cambio por error se para en nuestro código, y un test comprueba que las tres son lecturas de tablas permitidas.
+- **Tipos:** el texto de Athena se convierte con `pd.to_datetime` y `pd.to_numeric` sin `errors="coerce"`: un valor raro debe fallar, no convertirse en NaN sin avisar.
+- **`latest_volatility`:** la última fecha **de cada activo**, no la máxima de la tabla (la regla del paso 7.6).
+- **Fuera del paquete `marketpulse`** (`dashboard/`, como `api/`): no entra en el zip de Lambda ni en la cobertura de `src/`.
+- **La caché** (`st.cache_data` con TTL) irá en la capa de interfaz (8.4), no aquí, para que la capa de datos siga sin depender de Streamlit.
+
+**Coste:** cada carga hace 3 consultas pequeñas (unos KB escaneados). Aunque cada una se cobrara como 10 MB, a 5 USD/TB son unos 0,00005 USD por consulta.
+
+**Verificado (2026-10-25):** 17 tests con el Athena falso y una prueba real con el rol `marketpulse-agent` (1.910 filas de precios, 1.687 de volatilidad y 8 activos, en menos de 3 s cada consulta).

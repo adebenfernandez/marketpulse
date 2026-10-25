@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
 **Fase actual:** Fase 8 · Escaparate (empezada el 2026-10-23)
-**Siguiente paso:** paso 8.2 (atribuciones y términos de las fuentes). Pendientes: las respuestas de Alberto al repaso de la Fase 7 y a la pregunta del 8.1
+**Siguiente paso:** commit y PR del paso 8.3; después, permiso para `streamlit` y paso 8.4 (interfaz del dashboard). Pendientes: las respuestas de Alberto a las preguntas de repaso (Fase 7, 8.1 y 8.2)
 
 ## Cómo se trabaja ahora (traspaso para la Fase 8)
 
@@ -673,6 +673,12 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
   - Textos fijados: "Powered by CoinGecko" con enlace; BCE citado como fuente, con la nota de **datos transformados**; Alpha Vantage por cortesía. Solo texto, sin logos. En el README y, en el 8.4, junto a cada gráfico del dashboard.
   - README: nueva sección "Fuentes de datos y atribuciones" (proyecto personal y no comercial, los datos no se publican, no es asesoramiento financiero).
   - Riesgos aceptados por Alberto: guardar el histórico de CoinGecko en el bucket privado, las cifras de las capturas y volver a revisar los términos si el dashboard se publicara algún día.
+  - Commit `ab5a3fd`. **PR #16** abierto y fusionado por Alberto (`3ed21b3`), con la CI en verde (según Alberto). CodeBuild, *build* 14 (`GitHub-Hookshot`) → **SUCCEEDED**: `All checks passed!`, `275 passed`, `7jU2NQ15…`, `No changes`, `GUARDIA` OK, `0 added, 0 changed, 0 destroyed`.
+- Paso 8.3 — Capa de datos del dashboard (D-040), rama `fase8/dashboard-datos`. Sin cambios en AWS. Streamlit todavía **sin instalar**: el permiso se pide para el 8.4.
+  - `dashboard/__init__.py` y `dashboard/data.py`: `load_prices`, `load_volatility`, `load_assets` y `latest_volatility`. Consultas fijas sobre `daily_prices`, `v_rolling_volatility_30d` y `dim_asset`. `days` se comprueba (entero de 1 a 365) antes de entrar en la SQL, que pasa por `guard.validate_sql` (`LIMIT 5000`). El texto de Athena se convierte a fechas y números, y falla si un valor no es un número.
+  - `tests/test_dashboard_data.py`: 17 tests con el Athena falso (tipos, LIMIT, 8 valores de `days` no válidos que no llegan a Athena, valor no numérico, tabla vacía, última volatilidad de cada activo con la bolsa un día por detrás, y que las 3 consultas pasan el validador). `dashboard` añadido a `known-first-party` de ruff.
+  - Evidencia: `pytest` → **`292 passed`** · ruff y formato correctos · `build_lambda.py` → **`7jU2NQ15…`, sin cambios** (`dashboard/` está fuera del paquete).
+  - **Prueba real** (solo lectura, rol `marketpulse-agent` con `aws_session(assume_role=True)`): precios de 365 días → 1.910 filas (crypto 1.092, equity 312, fx 506) en 2,9 s, con `datetime64` y `float64`; volatilidad → 1.687 filas en 2,4 s; activos → 8. Últimas volatilidades: SOL 39,5 %, ETH 30,8 %, BTC 21,8 % (24 de octubre); QQQ 18,8 %, VT 11,3 %, SPY 10,4 %, EUR/USD 4,9 % y EUR/GBP 3,0 % (23 de octubre, viernes). Las fechas cuadran con D-024: la cripto llega hasta "ayer", y bolsa y divisas hasta el último día hábil.
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista
