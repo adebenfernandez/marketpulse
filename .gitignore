@@ -39,6 +39,9 @@ dist/
 .venv/
 venv/
 
+# --- Streamlit: los secretos nunca al repositorio (config.toml sí se sube) ---
+.streamlit/secrets.toml
+
 # --- Herramientas de calidad ---
 .pytest_cache/
 .ruff_cache/

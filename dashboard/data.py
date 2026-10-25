@@ -70,6 +70,20 @@ def latest_volatility(volatility: pd.DataFrame) -> pd.DataFrame:
     return last.sort_values("annualized_volatility_30", ascending=False).reset_index(drop=True)
 
 
+def rebase_to_100(prices: pd.DataFrame) -> pd.DataFrame:
+    """Añade `index_100`: el precio de cada activo dividido por su PRIMER precio del periodo, x100.
+
+    BTC vale ~84.000 USD y EUR/GBP ~0,87: en un mismo gráfico, la divisa sería una línea plana.
+    Con base 100, todos empiezan en 100 y se compara cuánto ha subido o bajado cada uno
+    (110 = +10 %).
+    """
+    if prices.empty:
+        return prices.assign(index_100=pd.Series(dtype="float64"))
+    ordered = prices.sort_values(["asset", "date"])
+    first = ordered.groupby("asset")["price"].transform("first")
+    return ordered.assign(index_100=ordered["price"] / first * 100).reset_index(drop=True)
+
+
 def _check_days(days: int) -> int:
     # bool es un int en Python (True == 1): se rechaza aparte para no aceptar days=True
     if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= MAX_DAYS:

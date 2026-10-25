@@ -29,6 +29,11 @@ agent = [
     "fastapi>=0.159",       # API HTTP del agente
     "uvicorn>=0.54",        # servidor que ejecuta la app de FastAPI
 ]
+# Dashboard (Fase 8, D-041): se instala junto a `agent` (pip install -e ".[agent,dashboard]").
+# Ni la CI ni la imagen de Docker lo necesitan: los tests prueban dashboard/data.py, sin Streamlit
+dashboard = [
+    "streamlit==1.66.1",    # interfaz web en Python; fijada (se publican versiones a menudo)
+]
 # Herramientas solo para desarrollo: no viajan a Lambda
 dev = [
     "ruff>=0.14",

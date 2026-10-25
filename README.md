@@ -165,6 +165,24 @@ Barreras contra SQL peligrosa e inyección de *prompts* (defensa en profundidad)
 Si cambian las dependencias del agente, hay que regenerar `config/agent-requirements.txt` con
 `python scripts/lock_agent.py` (un test lo exige).
 
+## Dashboard (Fase 8)
+
+Precios en base 100, volatilidad anualizada a 30 sesiones y una caja de preguntas al agente. Lee
+Athena con el mismo rol de **solo lectura** que el agente (credenciales temporales de 1 hora) y
+solo escucha en `127.0.0.1`. Los gráficos funcionan sin `ANTHROPIC_API_KEY`; la caja de preguntas
+la necesita.
+
+```powershell
+pip install -e ".[agent,dashboard]"
+aws login --profile marketpulse
+$env:AWS_PROFILE = "marketpulse"
+python -m streamlit run dashboard/app.py   # http://127.0.0.1:8501
+```
+
+`python -m` (y no `streamlit run` a secas) añade la carpeta actual a `sys.path`, para que
+`import dashboard` funcione. La configuración (sin telemetría y sin botón *Deploy*) está en
+`.streamlit/config.toml`.
+
 ## Despliegue continuo (después del primer despliegue)
 
 Ya no se despliega desde el portátil. El flujo normal es:
