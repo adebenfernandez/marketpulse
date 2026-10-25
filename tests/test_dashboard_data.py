@@ -13,6 +13,7 @@ from dashboard.data import (
     load_assets,
     load_prices,
     load_volatility,
+    rebase_to_100,
 )
 from marketpulse.agent.guard import validate_sql
 from tests.test_athena import FakeAthena
@@ -77,6 +78,21 @@ def test_la_ultima_volatilidad_es_la_de_cada_activo_aunque_la_bolsa_vaya_un_dia_
     assert list(last["asset"]) == ["SOL", "BTC", "SPY"]  # de mayor a menor
     assert last.loc[1, "annualized_volatility_30"] == 0.23  # la última de BTC, no la del 24
     assert last.loc[2, "date"] == pd.Timestamp("2026-10-23")  # SPY no se queda fuera
+
+
+def test_base_100_compara_activos_de_escalas_muy_distintas():
+    prices = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-10-02", "2026-10-01", "2026-10-01", "2026-10-02"]),
+            "asset": ["BTC", "BTC", "EUR/GBP", "EUR/GBP"],
+            "price": [88000.0, 80000.0, 0.80, 0.84],  # desordenado a propósito
+        }
+    )
+    out = rebase_to_100(prices)
+    by_asset = out.groupby("asset")["index_100"].apply(list).to_dict()
+    assert by_asset["BTC"] == pytest.approx([100.0, 110.0])  # empieza en 100 y sube un 10 %
+    assert by_asset["EUR/GBP"] == pytest.approx([100.0, 105.0])
+    assert rebase_to_100(prices.iloc[0:0]).empty
 
 
 def test_los_activos_vienen_tal_cual():

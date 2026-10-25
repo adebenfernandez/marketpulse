@@ -958,3 +958,30 @@ Casi todo lo que falta es el mismo tipo de código: los **puntos de entrada** qu
 **Coste:** cada carga hace 3 consultas pequeñas (unos KB escaneados). Aunque cada una se cobrara como 10 MB, a 5 USD/TB son unos 0,00005 USD por consulta.
 
 **Verificado (2026-10-25):** 17 tests con el Athena falso y una prueba real con el rol `marketpulse-agent` (1.910 filas de precios, 1.687 de volatilidad y 8 activos, en menos de 3 s cada consulta).
+
+---
+
+## D-041 · Interfaz del dashboard con Streamlit: local, solo lectura, cachés con caducidad y sin telemetría
+**Fecha:** 2026-10-25 · **Fase:** 8
+
+**Contexto:** el informe pide un dashboard en Streamlit con la evolución de precios, la volatilidad y una caja de preguntas al agente. La capa de datos ya existe (D-040).
+
+**Decisión:**
+- **Dependencia:** `streamlit==1.66.1` (publicada el 2026-10-21, Apache-2.0), con permiso de Alberto, en un extra `dashboard` aparte. Ni la CI ni CodeBuild ni la imagen de Docker la instalan: los tests prueban `dashboard/data.py`, que no importa Streamlit.
+- **`dashboard/app.py`**, con tres pestañas:
+  - **Precios en base 100** (`rebase_to_100`): con precios en bruto, EUR/GBP (~0,87) sería una línea plana al lado de BTC (~84.000).
+  - **Volatilidad:** la serie y una tabla con el último dato de cada activo.
+  - **Agente:** un formulario. El agente solo se llama al pulsar "Preguntar", porque cada pregunta cuesta dinero.
+- **Cachés:** `st.cache_resource(ttl=50 min)` para la sesión del rol y el agente (el rol encadenado dura 1 h, así que se renueva antes de que caduque), y `st.cache_data(ttl=1 h)` para las tablas: los datos cambian una vez al día.
+- **Atribuciones (D-039)** debajo de cada gráfico, solo de las clases de activo que se ven, y las tres debajo de cada respuesta del agente. Al pie, solo el aviso de "no es asesoramiento financiero", para no repetirlas.
+- **Errores:** si falla AWS (por ejemplo, con la sesión caducada), se muestra solo el tipo de error y cómo arreglarlo. Los mensajes de AWS pueden llevar el número de cuenta.
+- **`.streamlit/config.toml`:** `address = 127.0.0.1` (solo desde este ordenador), `headless = true`, `gatherUsageStats = false` (Streamlit envía estadísticas de uso por defecto) y `toolbarMode = "minimal"` (quita el botón *Deploy*, que publicaría la app en Streamlit Community Cloud; D-039 descarta publicarla). `.streamlit/secrets.toml` va al `.gitignore` por si alguien lo crea.
+- **Se lanza con `python -m streamlit run dashboard/app.py`:** `python -m` añade la carpeta actual a `sys.path`, así que `import dashboard` funciona sin instalar el paquete.
+
+**Alternativas descartadas:**
+- **Gráficos con plotly:** es otra dependencia. `st.line_chart` usa altair, que ya trae Streamlit.
+- **Precios en bruto con un gráfico por activo:** ocho gráficos, y no se ve la comparación.
+- **Desplegarlo en Streamlit Community Cloud:** haría falta exponer credenciales de AWS y redistribuir datos de CoinGecko y Alpha Vantage (D-039).
+- **Tests de interfaz con `streamlit.testing`:** llamarían a AWS o habría que simularlo todo. La lógica está en `data.py` (con tests) y la interfaz se ha probado a mano en el navegador.
+
+**Verificado (2026-10-25):** con el rol de solo lectura en `127.0.0.1:8501` (`netstat`: solo `127.0.0.1`), las tres pestañas funcionan. El agente respondió +6,39 % para BTC en septiembre (0,0016 USD) y rechazó un "ignora tus instrucciones… DROP TABLE" (0,0004 USD). Las dos preguntas quedaron en el registro de auditoría.

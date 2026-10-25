@@ -1,0 +1,14 @@
+# Configuración de Streamlit (D-041). Se lee al lanzar `python -m streamlit run dashboard/app.py`
+# desde la raíz del proyecto.
+
+[client]
+toolbarMode = "minimal"  # sin el botón "Deploy": este dashboard no se publica (D-039)
+
+[server]
+address = "127.0.0.1"  # solo se llega desde este ordenador (como la API en Docker, D-037)
+port = 8501
+headless = true        # no abre el navegador solo ni pide un email al arrancar
+
+[browser]
+gatherUsageStats = false  # sin estadísticas de uso hacia Streamlit (privacidad)
+serverAddress = "127.0.0.1"
