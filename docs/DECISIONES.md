@@ -164,7 +164,7 @@ Fuente: [Managed policies for your organization](https://docs.aws.amazon.com/acc
 
 **Decisión:** endpoint `/simple/price` (una llamada para todas las monedas, con capitalización, volumen, variación 24 h y `last_updated_at`); clave **opcional** leída de `COINGECKO_API_KEY`, y siempre en **cabecera**.
 
-**Motivo:** en local funciona sin registrarse (comprobado: 200 sin clave). En Lambda las IP de AWS se comparten, así que antes de la Fase 3 Alberto creará la clave Demo y se guardará en SSM Parameter Store. La cabecera evita que la clave aparezca en URLs y logs, como recomienda la propia documentación. Uso: 1 llamada/día ≈ 30/mes, muy por debajo del límite. **Pendiente:** fijar el texto exacto de la atribución antes de mostrar datos (Fase 8, dashboard y README).
+**Motivo:** en local funciona sin registrarse (comprobado: 200 sin clave). En Lambda las IP de AWS se comparten, así que antes de la Fase 3 Alberto creará la clave Demo y se guardará en SSM Parameter Store. La cabecera evita que la clave aparezca en URLs y logs, como recomienda la propia documentación. Uso: 1 llamada/día ≈ 30/mes, muy por debajo del límite. ~~**Pendiente:** fijar el texto exacto de la atribución antes de mostrar datos (Fase 8, dashboard y README).~~ → resuelto en D-039.
 
 ---
 
@@ -904,3 +904,34 @@ Casi todo lo que falta es el mismo tipo de código: los **puntos de entrada** qu
 - Las funciones `handler()` de Lambda, que crean los clientes de boto3 y llaman a `run_ingest_job`/`run_transform_job` (estas sí probadas). Los ficheros quedan en 78-89 % y se ejecutan de verdad cada día.
 
 **Pendiente de decidir:** añadirlo a la CI (`ci.yml`) para que un PR que baje del 70 % falle. Propuesto a Alberto.
+
+---
+
+## D-039 · Atribuciones de las fuentes: texto con enlace, junto a los datos, y sin publicar los datos
+**Fecha:** 2026-10-25 · **Fase:** 8 · Cierra lo pendiente de D-010 y D-011
+
+**Contexto:** antes de mostrar datos en el dashboard y de hacer público el repositorio hay que cumplir los términos de cada fuente. Términos consultados el 2026-10-25 en las páginas oficiales. Esto es una lectura técnica de los términos, no una opinión legal.
+
+**Qué dice cada fuente:**
+- **CoinGecko** ([API Terms](https://www.coingecko.com/en/api_terms), versión del 5 de septiembre de 2025, y su [guía de atribución](https://brand.coingecko.com/resources/attribution-guide)):
+  - Sección 4.4: hay que mostrar de forma destacada el mensaje "Powered by CoinGecko". La guía admite también "Data provided by", "Price data by" y "Source: CoinGecko", con enlace a `coingecko.com` o a `/en/api`, y pide colocarlo cerca de los datos. El logo es opcional, pero sin modificarlo y sacado de su *Brand Kit*.
+  - No se puede dar a entender que CoinGecko respalda el proyecto (4.5), ni revender ni redistribuir el acceso a la API (4.1.6).
+  - **Almacenar datos:** la sección 6.1 dice que no animan a cachear ni guardar los datos y que, si se hace, se refresquen al menos cada 24 horas; la 6.2 limita copiarlos o guardarlos a lo que permiten los términos.
+- **BCE** ([aviso legal](https://www.ecb.europa.eu/services/using-our-site/disclaimer/html/index.en.html)): uso libre si la información se reproduce con exactitud y **se cita al BCE como fuente**. Si se modifica (por ejemplo, al calcular tasas de crecimiento), **hay que decirlo explícitamente**. La página de los tipos de referencia dice que se publican solo a título informativo.
+- **Frankfurter** ([licencia](https://frankfurter.dev/license/)): el software es MIT. No posee los datos: se aplican los términos de cada proveedor (aquí, el BCE). No pide atribución propia.
+- **Alpha Vantage** ([Terms of Service](https://www.alphavantage.co/terms_of_service/), sin fecha visible): licencia para uso **personal y no comercial**. Es comercial, entre otros casos, dar acceso a la información a terceros como parte de una actividad comercial. No exige texto de atribución.
+
+**Decisión:**
+- **Textos:**
+  - "Powered by CoinGecko", con enlace a `https://www.coingecko.com/en/api`. Es la frase literal de los términos.
+  - "Fuente: Banco Central Europeo (BCE), tipos de cambio de referencia del euro, a través de Frankfurter", más la nota de **datos transformados**: las rentabilidades, volatilidades y correlaciones las calcula MarketPulse.
+  - "Datos de bolsa: Alpha Vantage". Es por cortesía y transparencia, no porque lo exijan.
+- **Dónde:** en el README (sección "Fuentes de datos y atribuciones") y en el dashboard, **junto a cada gráfico** y en el pie (paso 8.4).
+- **Solo texto, sin logo:** el logo exigiría descargar el *Brand Kit* y no añade nada a un proyecto personal.
+- **Los datos no se publican:** `data/` sigue ignorado, el bucket es privado y el dashboard solo se ejecuta en local (`127.0.0.1`).
+- **Aviso:** "proyecto personal, sin fines comerciales; no es asesoramiento financiero".
+
+**Riesgos aceptados (decisión de Alberto):**
+- **CoinGecko y el almacenamiento:** el proyecto guarda en el bucket privado un año de histórico (D-022) y una foto diaria. Los términos no animan a guardar datos, aunque lo admiten si se refresca cada 24 h (la ingesta es diaria). El uso es personal, sin redistribución y sin fines comerciales.
+- **Capturas del README:** muestran algunas cifras de precios. Es una demostración del proyecto, sin fines comerciales, con la atribución al lado.
+- **Si algún día el dashboard se despliega en público** (idea del informe), hay que volver a revisar los términos de CoinGecko (redistribución) y de Alpha Vantage (acceso de terceros), que podrían exigir un plan de pago.

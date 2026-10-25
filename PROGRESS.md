@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
 **Fase actual:** Fase 8 · Escaparate (empezada el 2026-10-23)
-**Siguiente paso:** permiso para medir la cobertura, respuesta al repaso de la Fase 7 y OK al plan de la Fase 8 (paso 8.0)
+**Siguiente paso:** paso 8.2 (atribuciones y términos de las fuentes). Pendientes: las respuestas de Alberto al repaso de la Fase 7 y a la pregunta del 8.1
 
 ## Cómo se trabaja ahora (traspaso para la Fase 8)
 
@@ -121,7 +121,7 @@ Plantilla para cada fase (se rellena al trabajarla):
 - Primera ejecución real de Alpha Vantage: SPY bien, y VT y QQQ con un `200` y `Information: ... (1 request per second)`. Hay un límite de ráfaga no documentado en la página de soporte. Solución: pausa de 1,5 s entre símbolos. El fallo parcial funcionó como estaba diseñado.
 - Al probar el código de salida, `$env:ALPHAVANTAGE_API_KEY = ""` no dejó la clave vacía: en PowerShell eso **borra** la variable, y `load_dotenv()` cargó la clave real (3 peticiones gastadas). Se probó con `" "` y se añadió `get_secret()` para que una clave de solo espacios cuente como ausente.
 
-- **Riesgos abiertos de esta fase:** (1) ~~crear la clave Demo de CoinGecko antes de la Fase 3~~ → resuelto en el paso 3.2; (2) fijar el texto de atribución de CoinGecko y la cita del BCE (Fase 8); (3) los precios de Alpha Vantage no están ajustados por dividendos (Fase 4).
+- **Riesgos abiertos de esta fase:** (1) ~~crear la clave Demo de CoinGecko antes de la Fase 3~~ → resuelto en el paso 3.2; (2) ~~fijar el texto de atribución de CoinGecko y la cita del BCE (Fase 8)~~ → resuelto en el paso 8.2 (D-039); (3) los precios de Alpha Vantage no están ajustados por dividendos (Fase 4).
 
 ### Qué ha aprendido Alberto
 - Qué es una API REST, cómo se lee una respuesta JSON y qué significan los códigos HTTP (2xx/4xx/5xx, 429).
@@ -659,6 +659,20 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
 - Paso 8.1 — Cobertura de tests (D-038), rama `fase8/cobertura`: `coverage==7.16.2` en `dev` y `[tool.coverage.*]` en `pyproject.toml` (`source = src/marketpulse`, ramas, `show_missing`, `fail_under = 70`). Sin cambios en AWS.
   - Evidencia: `coverage run -m pytest` → `275 passed` · `coverage report` → **TOTAL 92 %** (1.464 sentencias, 115 sin ejecutar; 282 ramas, 19 parciales), código 0 · con `--fail-under=95` → código 2 · ruff y formato correctos · `build_lambda.py` → **`7jU2NQ15…`, sin cambios** (`coverage` no entra en el zip).
   - Lo menos cubierto: los `__main__.py` (0 %) y las funciones de entrada que crean clientes reales de AWS (`main()` de `athena.py` y `backfill.py`, `aws_session(assume_role=True)`, los `handler()`). Se prueban con ejecuciones reales. **Criterio de éxito 4 cumplido.**
+  - Commit `8ec9256` en la rama `fase8/cobertura`. No se pudo abrir el PR desde aquí: `gh` no está instalado y el navegador integrado no tenía la sesión de GitHub. Lo abrió Alberto: **PR #15**, fusionado (`2b9657f`). El resultado de la CI de GitHub Actions no lo he visto yo (pendiente de que Alberto lo confirme). CodeBuild repite ruff y pytest, y salieron bien.
+  - CodeBuild, *build* 13 (`GitHub-Hookshot`, `2b9657f`) → **SUCCEEDED**: `All checks passed!`, `275 passed`, `SHA-256 7jU2NQ15…`, `No changes`, `GUARDIA` OK, `Apply complete! 0 added, 0 changed, 0 destroyed`.
+- Seguimiento del *pipeline* (solo lectura, 2026-10-25; antes hubo que renovar `aws login`):
+  - **2026-10-24:** ingesta con 1 `ReadTimeout` de Frankfurter, que respondió al 2.º intento en **8.157 ms**; `failed: {}`, `Duration 26174 ms`. Transformación con `69 comprobaciones, 0 fallan` y gold de `1924 filas`.
+  - **2026-10-25:** ingesta sin reintentos (Frankfurter `200 en 452 ms`), `failed: {}`, `Duration 7356 ms`. Transformación con `69 comprobaciones, 0 fallan` y gold de `1927 filas`. Ese día terminaba el horario de verano en Europa, pero no afecta: las programaciones van en UTC.
+  - Métricas de los dos días: `Invocations 1` y `Errors 0` en cada Lambda. Las dos alarmas siguen en `OK`.
+  - **Racha: 5 días seguidos sin errores** (21 a 25 de octubre). Si no falla ninguna, los 7 se cumplen con la ejecución del **2026-10-27**.
+  - Frankfurter: 3 *timeouts* el día 23, 1 el 24 y ninguno el 25. Sigue siendo el punto débil, y los reintentos lo están cubriendo.
+  - Budgets: **0,033 USD** en octubre (sin cambios desde el 23).
+- Paso 8.2 — Atribuciones y términos de las fuentes (D-039), rama `fase8/atribuciones`. Sin AWS y sin código.
+  - Términos oficiales leídos el 2026-10-25: CoinGecko (*API Terms* del 2025-09-05 y guía de atribución), aviso legal del BCE, licencia de Frankfurter y *Terms of Service* de Alpha Vantage.
+  - Textos fijados: "Powered by CoinGecko" con enlace; BCE citado como fuente, con la nota de **datos transformados**; Alpha Vantage por cortesía. Solo texto, sin logos. En el README y, en el 8.4, junto a cada gráfico del dashboard.
+  - README: nueva sección "Fuentes de datos y atribuciones" (proyecto personal y no comercial, los datos no se publican, no es asesoramiento financiero).
+  - Riesgos aceptados por Alberto: guardar el histórico de CoinGecko en el bucket privado, las cifras de las capturas y volver a revisar los términos si el dashboard se publicara algún día.
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista

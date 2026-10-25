@@ -191,6 +191,21 @@ Excepciones, a propósito:
 el último: tiene `prevent_destroy`, así que hay que quitar esa línea antes de su `terraform destroy`,
 y vaciar sus versiones (el versionado las conserva).
 
+## Fuentes de datos y atribuciones
+
+MarketPulse es un proyecto personal y sin fines comerciales. Los datos se guardan en un bucket
+privado y **no** se publican en este repositorio (`data/` está en `.gitignore`). Nada de lo que
+muestra es asesoramiento financiero. Términos revisados el 2026-10-25 (D-039).
+
+- **Criptomonedas:** [Powered by CoinGecko](https://www.coingecko.com/en/api) (API, plan Demo).
+- **Divisas:** fuente: [Banco Central Europeo (BCE)](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html),
+  tipos de cambio de referencia del euro, obtenidos a través de [Frankfurter](https://frankfurter.dev)
+  (proveedor `ECB`). El BCE los publica solo a título informativo. **Datos transformados:** las
+  rentabilidades, volatilidades y correlaciones las calcula MarketPulse a partir de los tipos
+  originales; no son cifras del BCE.
+- **Bolsa (SPY, VT, QQQ):** datos de [Alpha Vantage](https://www.alphavantage.co) (clave gratuita,
+  uso personal y no comercial). Cierres diarios **sin ajustar** por dividendos.
+
 ## Ideas futuras
 
 Mejoras propuestas durante el proyecto, todavía sin hacer (fuera del alcance de su fase):
@@ -201,6 +216,7 @@ Mejoras propuestas durante el proyecto, todavía sin hacer (fuera del alcance de
 - **Agente:** conservar el registro de auditoría del contenedor montando `logs/` como volumen, y
   renovar solas las credenciales temporales cuando caducan (hoy: volver a lanzar el script).
 - **Evaluación:** más preguntas, y ejecutarla en CI con un presupuesto de gasto limitado.
-- **Ingesta:** revisar el *timeout* de 10 s de Frankfurter (tardó 9,2 s a primera hora, Fase 7).
+- **Ingesta:** revisar el *timeout* de 10 s de Frankfurter. Tardó 9,2 s a primera hora (Fase 7), y
+  los días 23 y 24 de octubre dio 3 y 1 *timeouts*, que cubrieron los reintentos (Fase 8).
 - **Transformación:** bajar la memoria de la Lambda (usa ~250 de 1.024 MB), midiendo antes el
   efecto en la duración (Fase 3).
