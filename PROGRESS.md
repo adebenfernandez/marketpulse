@@ -781,3 +781,9 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
 **P:** Vas a hacer público un repositorio que hasta ahora era privado. ¿Qué compruebas antes?
 **R:** Que no haya secretos en **todo el historial**, no solo en la versión actual, porque un fichero borrado sigue en los commits antiguos. Busco por nombre de fichero (`.env`, *state* de Terraform, claves) y por contenido: patrones de claves conocidas y, sobre todo, los valores reales, uno a uno, con un control positivo para saber que la búsqueda funciona. Después reviso lo que la plataforma publica fuera de Git, como las descripciones de los PR o los logs de la CI, y los metadatos, como el email de los autores. Si algo se hubiera filtrado, lo primero es **rotar la clave**, porque reescribir el historial no garantiza que nadie la haya copiado. Por último, compruebo que la protección de la rama principal se aplica de verdad.
 
+## Después de la Fase 8
+- **Rediseño del dashboard (D-044)**, a petición de Alberto ("claro minimalista" y "una página con secciones"), rama `dashboard/rediseno`:
+  - Tema oficial de Streamlit, 8 tarjetas con mini-serie, una fila de filtros, gráficos con Altair (como mucho 3 series, paleta validada, ficha al pasar el ratón), ranking de volatilidad y el agente como chat.
+  - Función nueva `asset_summary` con su test.
+  - Evidencia: `pytest` → `294 passed` · ruff correcto · huella `7jU2NQ15…` · probado en el navegador con 2 preguntas reales (0,0018 USD) · capturas nuevas en `docs/img/`.
+

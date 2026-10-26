@@ -9,6 +9,7 @@ from dashboard.data import (
     PRICES_SQL,
     ROW_LIMIT,
     VOLATILITY_SQL,
+    asset_summary,
     latest_volatility,
     load_assets,
     load_prices,
@@ -93,6 +94,42 @@ def test_base_100_compara_activos_de_escalas_muy_distintas():
     assert by_asset["BTC"] == pytest.approx([100.0, 110.0])  # empieza en 100 y sube un 10 %
     assert by_asset["EUR/GBP"] == pytest.approx([100.0, 105.0])
     assert rebase_to_100(prices.iloc[0:0]).empty
+
+
+def test_el_resumen_compara_30_dias_naturales_de_cada_activo():
+    dates = pd.date_range("2026-09-01", "2026-10-25", freq="D")
+    prices = pd.concat(
+        [
+            pd.DataFrame(
+                {
+                    "date": dates,
+                    "asset": "BTC",
+                    "asset_class": "crypto",
+                    "currency": "USD",
+                    "price": [100.0 + i for i in range(len(dates))],
+                }
+            ),
+            # La bolsa va un día por detrás: su último dato es el 24
+            pd.DataFrame(
+                {
+                    "date": dates[:-1],
+                    "asset": "SPY",
+                    "asset_class": "equity",
+                    "currency": "USD",
+                    "price": 50.0,
+                }
+            ),
+        ]
+    )
+    out = asset_summary(prices).set_index("asset")
+    btc = out.loc["BTC"]
+    # Último 25-10 (precio 154); hace 30 días, 25-09 (precio 124)
+    assert btc["last_price"] == 154.0
+    assert btc["change_pct"] == pytest.approx((154 / 124 - 1) * 100)
+    assert len(btc["spark"]) == 30 and btc["spark"][-1] == 154.0
+    assert out.loc["SPY", "last_date"] == pd.Timestamp("2026-10-24")
+    assert out.loc["SPY", "change_pct"] == pytest.approx(0.0)
+    assert asset_summary(prices.iloc[0:0]).empty
 
 
 def test_los_activos_vienen_tal_cual():

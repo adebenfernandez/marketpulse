@@ -1037,3 +1037,39 @@ Casi todo lo que falta es el mismo tipo de código: los **puntos de entrada** qu
 
 **Al hacerlo público, GitHub activa por defecto el escaneo de secretos y la protección de *push*,** que bloquean los *push* con claves reconocibles. Es una red de seguridad más, no un sustituto de esta revisión.
 
+
+---
+
+## D-044 · Rediseño del dashboard: una sola página, tema claro minimalista y gráficos con Altair
+**Fecha:** 2026-10-26 · **Después de la Fase 8** (mejora pedida por Alberto)
+
+**Contexto:** la primera versión (D-041) funcionaba, pero a Alberto no le gustaba cómo se veía: barra lateral con etiquetas rojas, pestañas, gráficos por defecto con el eje desde 0 y 8 líneas a la vez.
+
+**Decisiones (Alberto eligió "claro minimalista" y "una página con secciones"):**
+- **Tema** en `.streamlit/config.toml`: fondo blanco, tinta casi negra (`#0b0b0b`), un solo acento azul (`#2a78d6`), bordes de gris muy suave, radio de 0,6 rem y títulos y cifras en semibold. Sin CSS propio: solo opciones oficiales del tema, para que no se rompa con una versión nueva de Streamlit.
+- **Una sola página, sin barra lateral:**
+  - Cabecera con la fecha del último dato.
+  - **8 tarjetas** (`st.metric` con borde): precio en formato español, variación a 30 días naturales de cada activo y una mini-serie de 30 puntos (`asset_summary`, con su test).
+  - **Una fila de filtros**: clase de activo y periodo.
+  - Evolución, volatilidad y el agente.
+- **Gráficos con Altair** (ya venía con Streamlit, sin dependencias nuevas), siguiendo la guía de visualización:
+  - Líneas de 2 px y rejilla en una sola línea gris.
+  - El eje no empieza en 0.
+  - Leyenda arriba, y al pasar el ratón una línea vertical, un punto y una ficha.
+  - **Como mucho 3 series por gráfico** (una clase de activo cada vez), con los 3 primeros colores de la paleta validada, que se distinguen también con daltonismo.
+  - El color sigue al activo: BTC siempre es azul.
+- **Ranking de volatilidad** en barras horizontales de un solo color (es una magnitud, no categorías), con el valor en la punta y un 30 % de margen para que no se corte.
+- **Accesibilidad:** cada gráfico de evolución tiene una tabla debajo ("Ver los datos"), y el texto nunca va en el color de la serie.
+- **El agente como chat:**
+  - 3 preguntas de ejemplo como botones (`st.pills`, que se limpian solas para no repetir la pregunta).
+  - Historial en la sesión, la SQL en un desplegable y el coste de cada respuesta.
+  - La caja de texto va dentro de un contenedor para que se quede en la página y no fijada al pie.
+- **Atribuciones (D-039)** debajo de cada sección; al pie, solo el aviso.
+
+**Alternativas descartadas:**
+- **CSS propio inyectado:** se rompe con facilidad entre versiones de Streamlit.
+- **Plotly:** otra dependencia.
+- **Las 8 series en un mismo gráfico:** ilegibles, y la paleta no garantiza distinguir más de 3 a la vez.
+- **Modo oscuro:** Alberto eligió el claro.
+
+**Verificado (2026-10-26):** en el navegador a 1440x900, las tarjetas, los filtros (Cripto y Divisas), la evolución, la volatilidad con el ranking y dos preguntas reales (0,0007 y 0,0011 USD). `pytest` → 294 passed · ruff correcto · huella del zip sin cambios (`7jU2NQ15…`). Capturas nuevas en `docs/img/`.
