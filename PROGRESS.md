@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 8 · Escaparate (empezada el 2026-10-23)
-**Siguiente paso:** commit y PR del paso 8.8 (licencia); Alberto revisa los PR y los logs de Actions, activa la privacidad del email y hace público el repositorio; después, comprobar la protección de `main`. Pendientes: las respuestas de Alberto a las preguntas de repaso (Fase 7 y 8.1 a 8.5)
+**Fase actual:** Fase 8 terminada (2026-10-26); quedan los criterios de éxito 1, 2, 7 y 8
+**Siguiente paso:** ronda de repaso del cierre; comprobar la ejecución del 2026-10-27 (día 7); grabar el vídeo (Alberto); opcional: ensayar el despliegue en una cuenta vacía y `destroy`
 
 ## Cómo se trabaja ahora (traspaso para la Fase 8)
 
@@ -18,7 +18,7 @@
   - Docker: `docker build -f api/Dockerfile -t marketpulse-agent:local .` y `.\scripts\run_agent_docker.ps1` → `http://127.0.0.1:8000`
 
   `agent/` no entra en el zip de Lambda (`NOT_FOR_LAMBDA`). Si cambian sus dependencias: `python scripts/lock_agent.py`. Docker Desktop hay que arrancarlo a mano.
-- **Para la Fase 8 (escaparate):** el dashboard puede llamar a `POST /ask` de la API (Docker, 127.0.0.1:8000) o usar `Agent` directamente. El repositorio sigue siendo **privado**: hacerlo público exige revisar el historial (criterio 2 de la Fase 8) y activará la protección de `main` (riesgo abierto de la Fase 6).
+- **Desde la Fase 8:** el repositorio es **público** (MIT). `main` exige PR, los checks `Python (ruff + pytest)` y `Terraform (fmt + validate)`, y nadie puede saltársela, ni siquiera el administrador. Los commits nuevos usan el email *noreply* (`git config --local`). Los PR los abre Alberto (no hay `gh`). Dashboard: `pip install -e ".[agent,dashboard]"` y `python -m streamlit run dashboard/app.py` (127.0.0.1:8501). Borradores del vídeo, el post y el CV en `privado/` (ignorado por Git).
 
 Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 
@@ -32,7 +32,7 @@ Leyenda: ⬜ pendiente · 🟡 en curso · ✅ terminada
 | 5 | Infraestructura como código completa | ✅ |
 | 6 | CI/CD con GitHub Actions | ✅ |
 | 7 | Agente text-to-SQL | ✅ |
-| 8 | Escaparate | ⬜ |
+| 8 | Escaparate | ✅ |
 
 <!--
 Plantilla para cada fase (se rellena al trabajarla):
@@ -637,8 +637,8 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
 
 ## Fase 8 · Escaparate
 **Criterios de aceptación:**
-- [ ] Alguien que no conoce el proyecto puede ejecutarlo siguiendo el README
-- [ ] El repositorio es público y no contiene ningún secreto (comprobado con una búsqueda en el historial)
+- [x] Alguien que no conoce el proyecto puede ejecutarlo siguiendo el README — en local (niveles 1 y 2: clon limpio, `293 passed`, ingesta y transformación correctas, paso 8.6). **Matiz:** el nivel 3 (desplegar en una cuenta de AWS vacía) está revisado, pero no se ha ejecutado (riesgo abierto)
+- [x] El repositorio es público y no contiene ningún secreto (comprobado con una búsqueda en el historial) — 59 commits y 22 PR revisados (paso 8.8)
 
 ### Pasos completados
 - Paso 8.0 — Comprobaciones previas (solo lectura, 2026-10-23 a las 11:20 UTC):
@@ -725,7 +725,59 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
     - `CLAUDE.md`: se publica tal cual.
     - Licencia MIT: `LICENSE` y una sección en el README.
     - Las descripciones de los PR y los logs de Actions las revisa Alberto.
+  - Commit `470e244` (el primero con el email *noreply*). **PR #22** fusionado por Alberto (`ad0c29f`). CodeBuild, *build* 20 → **SUCCEEDED**: `All checks passed!`, `293 passed`, `7jU2NQ15…`, `No changes`, `GUARDIA` OK, `0 added, 0 changed, 0 destroyed`. Después, la API pública de GitHub seguía respondiendo 404: el repositorio seguía siendo privado.
+- Paso 8.8 (segunda parte) — Repositorio público (2026-10-26).
+  - Alberto revisó los PR y los logs de Actions (sin hallazgos), activó la privacidad del email en GitHub e **hizo público el repositorio**.
+  - Comprobación con la API pública de GitHub, sin credenciales: `private: False`, `visibility: public`, licencia `MIT` reconocida. La insignia de la CI responde 200.
+  - Escaneo de lo que GitHub guarda fuera de Git, ya público: **22 PR, 0 comentarios y 0 issues**. No aparecen las claves de `.env`, el email, el número de cuenta ni los buckets; tampoco claves `AKIA`/`ASIA`, `sk-ant-` ni tokens de GitHub, ni números de 12 cifras salvo los dos públicos conocidos. Resultado: nada sensible.
+  - **Protección de `main`:** `GET /branches/main` → `protected: true`, `required_status_checks.enforcement_level: non_admins`. La API pública **no muestra los nombres de los checks** (`contexts: []`) y el detalle (`/protection`) pide credenciales (401). Pendiente: que Alberto confirme en *Settings → Branches* que la regla ya no dice "Not enforced" y que exige `Python (ruff + pytest)` y `Terraform (fmt + validate)`. Ojo: `non_admins` quiere decir que un administrador (Alberto) puede saltársela.
+  - **Hallazgo (captura de Alberto de *Settings → Branches*):** la regla de `main` tiene marcado "Require status checks to pass before merging", pero **"No required checks"**: los dos checks que se pusieron en el paso 6.3 no están guardados. Tampoco está marcado "Require a pull request before merging". En la práctica, **la regla no exige nada**: la lista vacía de la API pública era real. Se corrige a mano en la propia regla (lo hace Alberto).
+  - **Corregida por Alberto:** exige PR (sin aprobaciones, porque trabaja solo), los dos checks y "Do not allow bypassing". Comprobado con la API pública: `enforcement_level: everyone` (antes `non_admins`) y `contexts: ["Python (ruff + pytest)", "Terraform (fmt + validate)"]`, los dos de GitHub Actions (`app_id 15368`). Que exija PR no lo enseña la API pública (lo confirma la captura de Alberto). **Riesgo abierto (1) de la Fase 6 resuelto.**
+  - **Criterio 2 de la Fase 8 cumplido:** el repositorio es público y no contiene ningún secreto, comprobado en todo el historial de Git y en los PR.
+- Paso 8.9 — Cierre de la Fase 8 (2026-10-26), rama `fase8/cierre`.
+  - Criterios de aceptación: los 2 cumplidos (el 1, con el matiz del despliegue en una cuenta vacía).
+  - **Criterios de éxito del proyecto (sección 10 del informe), estado real:**
+
+    | # | Criterio | Estado | Evidencia o lo que falta |
+    |---|---|---|---|
+    | 1 | 7 días seguidos sin errores | 🟡 6 de 7 | 21 al 26 de octubre sin errores en las ejecuciones programadas. Se cumple si la del **2026-10-27** va bien |
+    | 2 | Toda la infraestructura con `terraform apply` y `terraform destroy` | 🟡 Parcial | Todo está en Terraform (6 módulos) y se aplica en cada *merge*. **Ni el despliegue en una cuenta vacía ni `destroy` se han ejecutado** (riesgo de la Fase 5) |
+    | 3 | CI en verde; despliegue con OIDC sin claves guardadas | ✅ Con un cambio documentado | CI en verde (y ahora obligatoria en `main`). Sin claves en GitHub, pero con CodeBuild + CodeConnections en vez de OIDC, porque la SCP lo prohíbe (D-027) |
+    | 4 | Cobertura ≥ 70 % en `src/` | ✅ | 92 % (paso 8.1) |
+    | 5 | Agente 12/15 y bloquea lo peligroso | ✅ | 15/15 y 6/6 (paso 7.8) |
+    | 6 | Coste < 2 €/mes, en `docs/COSTES.md` | ✅ | ≈ 0,07 € en octubre (paso 8.5); falta cerrar el mes |
+    | 7 | README que un reclutador entiende en 2 minutos, con diagrama y demo | 🟡 | README con diagrama y capturas (paso 8.6). **Falta el vídeo**, que graba Alberto con el guion de `privado/` |
+    | 8 | Alberto sabe explicar cada componente y decisión sin mirar | 🟡 Sin comprobar | Las respuestas del cierre llegaron pegadas de otra fuente y las variantes no se respondieron (ver "Qué ha aprendido") |
+
+  - "Ideas futuras" del README: se añaden el despliegue en una cuenta vacía con `destroy`, y la cobertura en la CI.
 ### Problemas encontrados
+- **Herramientas y entorno:**
+  - Sin `gh`, Claude no podía abrir los PR ni leerlos: los abrió Alberto, y la revisión de los PR se hizo cuando el repositorio ya era público.
+  - El navegador integrado no tenía la sesión de GitHub.
+  - La sesión de `aws login` caducó dos veces (12 h).
+  - Un comando de bash muy largo, con *heredocs* anidados, no se pudo leer entero. No cambió nada y se repitió con el editor.
+- **Frankfurter:** 3 *timeouts* el día 23 y 1 el 24. Los reintentos lo cubrieron (sigue en "Ideas futuras").
+- **La protección de `main` no exigía nada** (paso 8.8): la regla del paso 6.3 tenía marcados los checks, pero la lista estaba vacía y no se aplicaba a administradores. Se descubrió al cruzar la API pública con una captura de la configuración. Corregida.
+- **El email personal** está en los metadatos de autor de 39 commits. Se aceptó, y los commits nuevos usan el *noreply* (D-043).
+- **Riesgos abiertos de esta fase:**
+  1. El despliegue en una cuenta vacía y `terraform destroy` no se han ejecutado nunca.
+  2. Falta el día 7 de la racha (2026-10-27).
+  3. Falta grabar el vídeo.
+  4. El plan gratuito de AWS termina el 2027-04-19; después, los créditos dejan de cubrir el gasto (≈ 0,17 USD al mes).
+  5. Si algún día se publica el dashboard, hay que revisar otra vez los términos de CoinGecko y Alpha Vantage (D-039).
 ### Qué ha aprendido Alberto
+- **Medir antes de afirmar:** la cobertura (líneas frente a ramas), el coste real con APIs gratuitas (y por qué no usar una API que cobra por consulta) y el estado real de la protección de `main`, que no era lo que parecía.
+- **Datos de terceros:** la diferencia entre la licencia del código y la de los datos, las atribuciones obligatorias (CoinGecko, BCE, con la nota de datos transformados) y lo que se puede publicar y lo que no.
+- **Interfaces de datos:** separar la capa de datos de la interfaz, el modelo de re-ejecución de Streamlit, las cachés con TTL alineadas con la caducidad de las credenciales y la base 100 para comparar series.
+- **Publicar un repositorio:** revisar todo el historial (no solo la versión actual), lo que GitHub publica fuera de Git (PR, logs), los metadatos de autor, el email *noreply*, la licencia y que hacerlo público es irreversible en la práctica.
+- **Comunicar un proyecto técnico:** README en niveles, diagrama como código (Mermaid), decisiones con su porqué, cifras comprobadas y la prueba del recién llegado.
+- **Ronda de repaso (cierre, 2026-10-26):**
+  - Las 3 preguntas (inyección de SQL con `format()`, clave filtrada y techo frente a `glue:DeleteTable`) se respondieron **correctamente y con detalle**, pero el texto llegó pegado de otra fuente (cita `dashboard/data.py:87` con su número de línea).
+  - Las 3 variantes de comprobación (dónde cambiar una clave de Alpha Vantage, si la transformación puede borrar en `silver/` y cómo hacer seguro un `format()` con texto) **no se respondieron**: llegaron pistas de otra fuente en lugar de respuestas.
+  - **Valoración honesta:** el criterio de éxito 8 **no queda comprobado**. Las respuestas cortas están en el chat del cierre. Para repasar antes de una entrevista, en voz alta y sin mirar: (1) por qué el permiso efectivo es la intersección de la política y el techo; (2) dónde viven las claves (`.env` en local y SSM `SecureString` para la Lambda) y por qué Terraform no las toca; (3) lista blanca o parámetros frente a pegar texto en la SQL; (4) qué hacer primero si se filtra una clave.
 ### Cómo contarlo en una entrevista
+"Para cerrar el proyecto lo preparé como si fuera a usarlo otra persona. Construí un dashboard en Streamlit que lee Athena con un rol de solo lectura y credenciales temporales, con una caja de preguntas al agente. Medí el coste real con APIs gratuitas: unos siete céntimos el primer mes, desarrollo incluido. Antes de hacer público el repositorio revisé los 59 commits del historial y los pull requests buscando cualquier secreto, y al comprobar la protección de la rama principal descubrí que no exigía nada, aunque lo parecía; la corregí y lo verifiqué con la API de GitHub. Y probé el README como un recién llegado, en un clon limpio, para asegurarme de que funciona sin mi ordenador."
 ### Pregunta típica de entrevista
+**P:** Vas a hacer público un repositorio que hasta ahora era privado. ¿Qué compruebas antes?
+**R:** Que no haya secretos en **todo el historial**, no solo en la versión actual, porque un fichero borrado sigue en los commits antiguos. Busco por nombre de fichero (`.env`, *state* de Terraform, claves) y por contenido: patrones de claves conocidas y, sobre todo, los valores reales, uno a uno, con un control positivo para saber que la búsqueda funciona. Después reviso lo que la plataforma publica fuera de Git, como las descripciones de los PR o los logs de la CI, y los metadatos, como el email de los autores. Si algo se hubiera filtrado, lo primero es **rotar la clave**, porque reescribir el historial no garantiza que nadie la haya copiado. Por último, compruebo que la protección de la rama principal se aplica de verdad.
+

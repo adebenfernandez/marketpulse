@@ -394,6 +394,8 @@ Mejoras propuestas durante el proyecto, todavía sin hacer (fuera del alcance de
 - **Agente:** conservar el registro de auditoría del contenedor montando `logs/` como volumen, y
   renovar solas las credenciales temporales cuando caducan (hoy: volver a lanzar el script).
 - **Evaluación:** más preguntas, y ejecutarla en CI con un presupuesto de gasto limitado.
+- **Infraestructura:** ensayar el despliegue completo en una cuenta de AWS vacía y `terraform destroy` (revisado, pero nunca ejecutado de principio a fin).
+- **CI:** añadir `coverage report` (mínimo del 70 %) a GitHub Actions para que un PR que baje la cobertura no se pueda fusionar.
 - **Ingesta:** revisar el *timeout* de 10 s de Frankfurter. Tardó 9,2 s a primera hora (Fase 7), y
   los días 23 y 24 de octubre dio 3 y 1 *timeouts*, que cubrieron los reintentos (Fase 8).
 - **Transformación:** bajar la memoria de la Lambda (usa ~250 de 1.024 MB), midiendo antes el
