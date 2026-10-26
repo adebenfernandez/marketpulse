@@ -1,8 +1,162 @@
 # MarketPulse
 
-Plataforma de datos de mercados en AWS (Lambda, S3, Athena) con agente text-to-SQL.
+[![CI](https://github.com/adebenfernandez/marketpulse/actions/workflows/ci.yml/badge.svg)](https://github.com/adebenfernandez/marketpulse/actions/workflows/ci.yml)
 
-> En construcción. El README completo se escribirá en la Fase 8.
+**Plataforma de datos de mercados en AWS, con un agente de IA que responde en español
+generando SQL.** Cada mañana descarga precios de criptomonedas, bolsa y divisas, los limpia y
+valida, y los deja listos para consultar con SQL. Encima hay un dashboard y un agente al que se le
+puede preguntar "¿qué activo ha sido más volátil este mes?".
+
+Proyecto personal de aprendizaje (2026), hecho de principio a fin: ingesta, data lake,
+modelado, infraestructura como código, CI/CD, IA y costes.
+
+## En 2 minutos
+
+| | |
+|---|---|
+| **Qué hace** | Ingesta diaria de 3 APIs públicas → data lake en S3 (bronze/silver/gold en Parquet) → modelo en estrella en Athena → agente text-to-SQL con Claude → dashboard en Streamlit |
+| **Funciona solo** | Lambda + EventBridge Scheduler a las 06:00 y 06:30 UTC, con alarmas por email. Se ejecuta a diario desde el 21-10-2026 |
+| **Calidad** | 293 tests (92 % de cobertura en `src/`), 69 comprobaciones de calidad de datos en cada carga, ruff |
+| **Agente** | 15/15 preguntas correctas en la evaluación, y 6/6 ataques de *prompt injection* rechazados |
+| **Infraestructura** | 100 % Terraform (6 módulos), con despliegue automático en cada *merge* y sin claves de AWS en GitHub |
+| **Coste real** | ≈ 0,07 € en octubre de 2026, con todo el desarrollo incluido ([docs/COSTES.md](docs/COSTES.md)) |
+
+| Precios (base 100) | Volatilidad | Agente |
+|---|---|---|
+| ![Precios en base 100](docs/img/dashboard-precios.jpg) | ![Volatilidad anualizada](docs/img/dashboard-volatilidad.jpg) | ![Pregunta al agente](docs/img/dashboard-agente.jpg) |
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+    subgraph fuentes["APIs públicas"]
+        FX["Frankfurter<br/>(tipos del BCE)"]
+        CG["CoinGecko"]
+        AV["Alpha Vantage"]
+    end
+
+    subgraph aws["AWS · eu-north-1"]
+        SCH["EventBridge Scheduler<br/>06:00 y 06:30 UTC"]
+        ING["Lambda ingest"]
+        TRF["Lambda transform<br/>+ calidad de datos"]
+        SSM["SSM Parameter Store<br/>(claves de API)"]
+        BR[("S3 bronze<br/>JSON original")]
+        SG[("S3 silver y gold<br/>Parquet")]
+        GLUE["Glue Data Catalog<br/>tablas + vistas"]
+        ATH["Athena<br/>límite de 100 MB"]
+        MON["CloudWatch + SNS<br/>+ Budgets"]
+    end
+
+    subgraph local["En local"]
+        AG["Agente text-to-SQL<br/>(Claude Haiku)"]
+        API["API FastAPI<br/>(Docker)"]
+        DASH["Dashboard<br/>Streamlit"]
+    end
+
+    subgraph cicd["CI/CD"]
+        GHA["GitHub Actions<br/>ruff, pytest, terraform validate"]
+        CB["CodeBuild<br/>terraform plan + guardia + apply"]
+    end
+
+    FX & CG & AV --> ING
+    SCH --> ING & TRF
+    SSM --> ING
+    ING --> BR --> TRF --> SG --> GLUE --> ATH
+    ATH -- "rol de solo lectura" --> AG & DASH
+    AG --> API
+    DASH --> AG
+    ING & TRF -. errores .-> MON
+    GHA -- "merge a main" --> CB -. despliega .-> aws
+```
+
+**Stack:** Python 3.13 (pandas, pyarrow, boto3, sqlglot) · AWS (Lambda arm64, S3, Glue, Athena,
+EventBridge Scheduler, SSM, CloudWatch, SNS, Budgets, IAM, CodeBuild) · Terraform · GitHub Actions ·
+API de Claude · FastAPI · Docker · Streamlit.
+
+## Decisiones clave
+
+Cada decisión está razonada, con las alternativas descartadas, en
+[docs/DECISIONES.md](docs/DECISIONES.md).
+
+| Decisión | Por qué |
+|---|---|
+| **Bronze guarda la respuesta original** y silver/gold se reconstruyen enteras (D-009, D-015) | Si cambia una regla, se recalcula todo desde el dato bruto. Relanzar nunca duplica |
+| **Calidad *fail fast*:** si una comprobación falla, no se publica nada (D-017) | Un dato malo nunca llega a gold, y lo anterior se conserva |
+| **Modelo en estrella como vistas** sobre una sola tabla gold (D-023) | Sin copias de datos que mantener; Athena lee KB, no MB |
+| **Rentabilidades sobre la sesión anterior del mismo activo**, y fecha de cierre de cripto a las 00:00 UTC (D-024) | Sin esto, la correlación cripto-bolsa salía ≈ 0 por un desfase de un día |
+| **CodeBuild + CodeConnections en vez de OIDC** (D-027) | La cuenta prohíbe los proveedores OIDC. Así las credenciales nunca salen de AWS |
+| **Rol de despliegue con *permissions boundary*** y `Deny` explícitos (D-028) | Puede desplegar todo el proyecto, pero no darse más permisos a sí mismo |
+| **Agente con defensa en profundidad** (D-030, D-033) | *System prompt* + validador de SQL con un parser + rol de solo lectura + límite de bytes + auditoría. Un `DROP TABLE` falla aunque el modelo lo intente |
+| **Evaluación con respuestas calculadas en el momento** (D-036) | Las cifras correctas cambian cada día; se comparan sin usar otro LLM |
+
+## Costes reales
+
+| Octubre de 2026 (hasta el día 25) | Coste |
+|---|---|
+| AWS (sin contar créditos) | 0,033 USD |
+| API de Claude (71 preguntas, incluidas las evaluaciones) | ≈ 0,049 USD |
+| **Total** | **≈ 0,08 USD ≈ 0,07 €** |
+
+Un mes normal costaría unos 0,17 USD, y unos 0,41 USD sin ninguna capa gratuita. Nada está
+encendido por horas: todo es *serverless*. El desglose está en [docs/COSTES.md](docs/COSTES.md).
+
+## Cómo ejecutarlo
+
+**1. Sin cuenta de AWS (5 minutos): tests y linter.** Necesitas Python 3.13 y Git.
+
+```powershell
+git clone https://github.com/adebenfernandez/marketpulse.git
+cd marketpulse
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1          # en Linux o macOS: source .venv/bin/activate
+pip install -e ".[dev,agent]"
+pytest                                # esperado: todos los tests en verde, sin internet ni AWS
+ruff check .
+```
+
+**2. La ingesta en local, sin AWS.** Con las claves gratuitas de CoinGecko y Alpha Vantage en
+`.env` (copia `.env.example`):
+
+```powershell
+python -m marketpulse.ingest          # descarga a data/bronze/
+python -m marketpulse.transform       # construye data/silver/ y data/gold/ y pasa la calidad
+```
+
+**3. Todo en tu cuenta de AWS:** sigue [Desplegar desde cero](#desplegar-desde-cero). Después,
+el [agente](#agente-text-to-sql-fase-7) y el [dashboard](#dashboard-fase-8).
+
+## Lecciones aprendidas
+
+- **Un 200 no siempre es un éxito.** Alpha Vantage devuelve los errores con código 200 y tiene un
+  límite por segundo que su documentación no menciona. Solo lo descubrí ejecutándolo de verdad.
+- **El significado de una fecha es parte del dato.** La correlación cripto-bolsa salía ≈ 0 porque
+  la "fecha" de cripto no significaba lo mismo que la de bolsa. Lo arreglé en silver, no en la
+  consulta.
+- **Las evaluaciones encuentran fallos que los tests no ven.** Las primeras pasadas del agente
+  destaparon dos errores de mi código (comillas tipográficas en la SQL y un error de Athena que no
+  se capturaba).
+- **Las restricciones de la plataforma cambian el diseño.** Sin OIDC, el despliegue pasó a
+  CodeBuild; sin email directo en Budgets, las alertas pasan por SNS.
+- **Reproducible significa byte a byte.** El zip de Lambda salía distinto en Windows y en Linux por
+  tres motivos (CRLF, una versión de `certifi` y los metadatos del zip). Ahora da la misma huella.
+- **Leer el `plan` de Terraform con lupa.** Al importar el presupuesto descubrí que contaba los
+  créditos: sus alertas nunca habrían saltado.
+- **Comprobar justo antes de afirmar.** "El zip no cambia" era verdad un paso antes del PR, y dejó
+  de serlo. Desde entonces, la huella se comprueba justo antes de cada PR.
+
+## Estructura del repositorio
+
+```text
+config/            watchlist.yaml (activos) y bloqueos de dependencias
+src/marketpulse/   ingest · transform · quality · agent · common
+sql/views/         modelo en estrella y vistas analíticas (Athena)
+infra/             Terraform: storage · compute · analytics · monitoring · cicd · agent
+api/               API del agente (FastAPI + Dockerfile)
+dashboard/         dashboard en Streamlit (data.py: consultas; app.py: interfaz)
+evals/             15 preguntas y 6 ataques para evaluar el agente
+tests/             293 tests con dobles de prueba (sin internet ni AWS)
+docs/              DECISIONES.md · COSTES.md · GLOSARIO.md
+```
 
 ## Desplegar desde cero
 
@@ -28,7 +182,7 @@ se indique otra carpeta.
 ```powershell
 python -m venv C:\Users\<tú>\.venvs\marketpulse        # fuera de OneDrive o Dropbox, si lo usas
 & C:\Users\<tú>\.venvs\marketpulse\Scripts\Activate.ps1
-pip install -e ".[dev,agent]"   # agent: el agente text-to-SQL (Fase 7)
+pip install -e ".[dev,agent,dashboard]"   # agent: el agente (Fase 7); dashboard: Streamlit (Fase 8)
 Copy-Item .env.example .env       # rellena tus claves de API (el bucket, después del paso 6)
 ```
 
@@ -86,13 +240,14 @@ terraform apply tfplan
 cd ..
 ```
 
-Se crean los cinco módulos:
+Se crean los seis módulos:
 - `storage`: el data lake en S3.
 - `compute`: las Lambdas, IAM, SSM, los logs y la programación diaria.
 - `analytics`: Glue, Athena y las vistas.
 - `monitoring`: SNS, el presupuesto de 5 USD con alertas al 50/80/100 % y las alarmas.
 - `cicd`: la conexión con GitHub, el techo de permisos (*boundary*), el rol de despliegue y el
   proyecto de CodeBuild con su *webhook* (D-027, D-028).
+- `agent`: el rol de solo lectura `marketpulse-agent` del agente y del dashboard (D-033).
 
 **La primera vez, este `apply` falla en el proyecto de CodeBuild** (`User is not authorized to
 access connection`): la conexión con GitHub nace en `PENDING` y no se puede usar hasta autorizarla.

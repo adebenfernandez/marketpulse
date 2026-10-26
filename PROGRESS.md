@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
 **Fase actual:** Fase 8 · Escaparate (empezada el 2026-10-23)
-**Siguiente paso:** commit y PR del paso 8.5; después, 8.6 (README escaparate). Pendientes: las respuestas de Alberto a las preguntas de repaso (Fase 7 y 8.1 a 8.4)
+**Siguiente paso:** commit y PR del paso 8.6; después, 8.7 (guion del vídeo, post y CV). Pendientes: las respuestas de Alberto a las preguntas de repaso (Fase 7 y 8.1 a 8.5)
 
 ## Cómo se trabaja ahora (traspaso para la Fase 8)
 
@@ -698,6 +698,17 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
   - API de Claude: 71 preguntas, **≈ 0,049 USD** (incluidas las 2 del dashboard y las 2 de Docker, estimadas).
   - **Total ≈ 0,08 USD ≈ 0,07 €** (EUR/USD 1,1193, BCE, 23-10-2026, sacado de nuestra propia tabla `daily_prices`). Proyección de un mes normal: ≈ 0,17 USD, y ≈ 0,41 USD sin ninguna capa gratuita. **Criterio de éxito 6 cumplido** (falta cerrar el mes).
   - El desglose oficial por servicio de los 0,033 USD no se conoce: la API de Cost Explorer cobra 0,01 USD por petición. Se puede ver gratis en la consola (*Billing → Bills*).
+  - Commit `d59b5d1`. **PR #19** abierto y fusionado por Alberto (`a0fd658`), con la CI en verde (según Alberto). Antes hubo que renovar `aws login`. CodeBuild, *build* 17 (`GitHub-Hookshot`) → **SUCCEEDED**: `All checks passed!`, `293 passed`, `7jU2NQ15…`, `No changes`, `GUARDIA` OK, `0 added, 0 changed, 0 destroyed`.
+- Seguimiento del *pipeline*, **2026-10-26** (solo lectura): ingesta sin reintentos (Frankfurter `200 en 5204 ms`), `failed: {}`, `Duration 12060 ms`; transformación con `69 comprobaciones, 0 fallan` y gold de `1930 filas`. `Invocations 1, Errors 0` en cada Lambda y las dos alarmas en `OK`. **Racha: 6 días seguidos sin errores** (del 21 al 26); el criterio de 7 días se cumpliría con la ejecución de mañana, **2026-10-27**.
+- Paso 8.6 — README escaparate, rama `fase8/readme`. Sin cambios en AWS.
+  - Cabecera nueva: qué es en dos frases, insignia de la CI, "En 2 minutos" (qué hace, funcionamiento automático, calidad, agente, infraestructura y coste), 3 capturas del dashboard (`docs/img/`), arquitectura en **Mermaid**, *stack*, 8 decisiones clave con su D-xxx, costes reales, "Cómo ejecutarlo" en 3 niveles (sin AWS, ingesta local, todo en AWS), 7 lecciones aprendidas y la estructura del repositorio. Se mantienen "Desplegar desde cero" (ahora con 6 módulos, incluido `agent`, y el extra `dashboard`), "Agente", "Dashboard", "Despliegue continuo", "Desmontar", "Fuentes y atribuciones" e "Ideas futuras".
+  - Capturas hechas en el navegador integrado (1280x800, JPEG de 27-35 KB). Revisadas: sin metadatos EXIF y sin números de cuenta (los 12 dígitos que detectó el escáner son bytes de la tabla de cuantización del JPEG). Una pregunta real al agente para la captura: 0,0010 USD.
+  - **Prueba del recién llegado** (clon limpio de `origin/main` en una carpeta temporal, venv nuevo con el Python 3.13 del sistema, siguiendo el README al pie de la letra):
+    - Nivel 1, sin `.env` ni AWS: `pip install -e ".[dev,agent]"` en 54 s → `pytest` **`293 passed`** → `ruff check` correcto. Total: 105 s.
+    - Nivel 2, con un `.env` copiado: `python -m marketpulse.ingest` → `3/3 fuentes correctas`, código 0 → `python -m marketpulse.transform` → `Calidad: 69 comprobaciones, 0 fallan`, gold de 305 filas, código 0.
+    - Después se borraron el `.env` y la carpeta del clon.
+    - Nivel 3 (desplegar en una cuenta vacía): **no se ha ejecutado**. Sigue siendo el riesgo abierto (1) de la Fase 5.
+  - **Sin comprobar:** cómo dibuja GitHub el diagrama Mermaid y las capturas (el repositorio es privado y el navegador integrado no tiene sesión). Se revisará en el PR.
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista
