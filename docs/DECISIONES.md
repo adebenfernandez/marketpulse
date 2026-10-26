@@ -1012,3 +1012,28 @@ Casi todo lo que falta es el mismo tipo de código: los **puntos de entrada** qu
 
 **Resultado:** ≈ 0,08 USD (≈ 0,07 €) en octubre hasta el día 25, entre AWS (0,033) y la API de Claude (≈ 0,049).
 
+---
+
+## D-043 · Repositorio público: revisión del historial, email de autor, `CLAUDE.md` y licencia MIT
+**Fecha:** 2026-10-26 · **Fase:** 8
+
+**Contexto:** hacer público el repositorio es irreversible en la práctica: lo que se publica puede quedar copiado o indexado aunque después se borre. El criterio 2 de la Fase 8 pide comprobar con una búsqueda en el historial que no hay ningún secreto.
+
+**Revisión (2026-10-26, solo lectura, sin herramientas nuevas):**
+- **59 commits de todas las referencias** (17 ramas remotas, sin etiquetas ni *stash*), con `git log --all -p` y un script que solo imprime "aparece / no aparece".
+- **Ficheros que han entrado alguna vez (165 rutas):** ningún `.env` (solo `.env.example`, con los valores vacíos), `tfstate`, `tfvars`, `backend.hcl`, `tfplan`, `data/`, `logs/`, `privado/`, `build/`, zips ni PDF. **`INFORME_PROYECTO.pdf` no ha entrado nunca.**
+- **Valores concretos, buscados uno a uno:** no aparecen ni las 4 claves de `.env` (Alpha Vantage, CoinGecko, Anthropic y el bucket), ni el número de cuenta, el ID de usuario de la sesión, los 2 buckets con su sufijo, el bucket del *state*, el UUID de la suscripción de SNS ni el ID de la conexión con GitHub.
+- **Patrones:** ninguna clave de AWS (`AKIA`/`ASIA`), secreto de AWS, clave de Anthropic (`sk-ant-`), token de GitHub ni clave privada. Números de 12 cifras: solo `123456789012` (el ejemplo de un comentario en `tools.py`) y `336392948345` (la cuenta pública de AWS que publica la capa de pandas).
+- **Controles positivos** (el escáner encuentra lo que debe): `marketpulse-alertas` en 7 commits, `<ID-CUENTA>` en 3 y `336392948345` en 5.
+- **Hallazgo:** el email personal de Alberto (el mismo de las alertas) **solo aparece en los metadatos de autor de 39 de los 59 commits**, no en el contenido. Los demás commits llevan el email *noreply* de GitHub (los *merges* hechos en la web).
+
+**Decisiones de Alberto:**
+- **Email:** aceptarlo y proteger lo que viene. No se reescribe el historial: un `push --force` no lo borraría del todo, porque GitHub conserva los commits originales en las referencias de los PR (`refs/pull/N/head`), y además habría que rehacer la conexión de CodeBuild si se creara otro repositorio. A partir de ahora:
+  - `user.email` = el *noreply* de GitHub, **solo en este repositorio** (`git config --local`; la configuración global no se toca).
+  - Alberto activa en GitHub "Keep my email addresses private" y "Block command line pushes that expose my email".
+- **`CLAUDE.md`:** se publica tal cual. Muestra con transparencia que es un proyecto de aprendizaje guiado con IA, y retirarlo no lo quitaría del historial.
+- **Licencia MIT** para el código (`LICENSE`). Los datos no están en el repositorio y tienen sus propios términos (D-039).
+- **Descripciones de los PR #1 a #21 y logs de GitHub Actions:** los revisa Alberto, porque Claude no puede leerlos sin `gh` ni sesión en GitHub.
+
+**Al hacerlo público, GitHub activa por defecto el escaneo de secretos y la protección de *push*,** que bloquean los *push* con claves reconocibles. Es una red de seguridad más, no un sustituto de esta revisión.
+
