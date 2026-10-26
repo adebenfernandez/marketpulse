@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
 **Fase actual:** Fase 8 · Escaparate (empezada el 2026-10-23)
-**Siguiente paso:** commit y PR del paso 8.6; después, 8.7 (guion del vídeo, post y CV). Pendientes: las respuestas de Alberto a las preguntas de repaso (Fase 7 y 8.1 a 8.5)
+**Siguiente paso:** commit y PR del paso 8.7; después, 8.8 (revisión de secretos en todo el historial y repositorio público). Pendientes: las respuestas de Alberto a las preguntas de repaso (Fase 7 y 8.1 a 8.5)
 
 ## Cómo se trabaja ahora (traspaso para la Fase 8)
 
@@ -708,7 +708,13 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
     - Nivel 2, con un `.env` copiado: `python -m marketpulse.ingest` → `3/3 fuentes correctas`, código 0 → `python -m marketpulse.transform` → `Calidad: 69 comprobaciones, 0 fallan`, gold de 305 filas, código 0.
     - Después se borraron el `.env` y la carpeta del clon.
     - Nivel 3 (desplegar en una cuenta vacía): **no se ha ejecutado**. Sigue siendo el riesgo abierto (1) de la Fase 5.
-  - **Sin comprobar:** cómo dibuja GitHub el diagrama Mermaid y las capturas (el repositorio es privado y el navegador integrado no tiene sesión). Se revisará en el PR.
+  - En el PR, Alberto comprobó que GitHub dibuja bien el diagrama Mermaid y las 3 capturas.
+  - Commit `86145c8`. **PR #20** abierto y fusionado por Alberto (`16c0058`), con la CI en verde (según Alberto). CodeBuild, *build* 18 (`GitHub-Hookshot`) → **SUCCEEDED**: `All checks passed!`, `293 passed`, `7jU2NQ15…`, `No changes`, `GUARDIA` OK, `0 added, 0 changed, 0 destroyed`.
+- Paso 8.7 — Guion del vídeo, post de LinkedIn y texto del CV, rama `fase8/escaparate`. Sin AWS y sin dependencias.
+  - Decisión de Alberto: guardarlos en `privado/ESCAPARATE.md`, con `privado/` en `.gitignore`, para que nunca se publiquen con el repositorio.
+  - Contenido: guion de 2 minutos en 7 bloques (con lo que hay que preparar y revisar antes de grabar, para no enseñar el número de cuenta, el email ni los buckets), borrador del post (sin publicar: lo revisa y lo publica Alberto) y texto del CV (una línea, viñetas en español y versión en inglés). Todas las cifras salen de PROGRESS.md y docs/COSTES.md.
+  - Evidencia: `git check-ignore -v privado/ESCAPARATE.md` → `.gitignore:43:privado/` · `git status` no muestra `privado/`.
+  - Pendiente (lo hace Alberto): grabar el vídeo y, si quiere, enlazarlo en el README.
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista

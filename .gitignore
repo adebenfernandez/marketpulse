@@ -39,6 +39,9 @@ dist/
 .venv/
 venv/
 
+# --- Borradores personales (guion del vídeo, post, CV): nunca al repositorio público ---
+privado/
+
 # --- Streamlit: los secretos nunca al repositorio (config.toml sí se sube) ---
 .streamlit/secrets.toml
 
