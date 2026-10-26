@@ -21,9 +21,9 @@ modelado, infraestructura como código, CI/CD, IA y costes.
 | **Infraestructura** | 100 % Terraform (6 módulos), con despliegue automático en cada *merge* y sin claves de AWS en GitHub |
 | **Coste real** | ≈ 0,07 € en octubre de 2026, con todo el desarrollo incluido ([docs/COSTES.md](docs/COSTES.md)) |
 
-| Precios (base 100) | Volatilidad | Agente |
+| Resumen | Volatilidad | Agente |
 |---|---|---|
-| ![Precios en base 100](docs/img/dashboard-precios.jpg) | ![Volatilidad anualizada](docs/img/dashboard-volatilidad.jpg) | ![Pregunta al agente](docs/img/dashboard-agente.jpg) |
+| ![Tarjetas con el precio y la variación de cada activo](docs/img/dashboard-resumen.jpg) | ![Volatilidad anualizada y ranking](docs/img/dashboard-volatilidad.jpg) | ![Pregunta a los datos en lenguaje natural](docs/img/dashboard-agente.jpg) |
 
 ## Arquitectura
 
@@ -322,7 +322,8 @@ Si cambian las dependencias del agente, hay que regenerar `config/agent-requirem
 
 ## Dashboard (Fase 8)
 
-Precios en base 100, volatilidad anualizada a 30 sesiones y una caja de preguntas al agente. Lee
+Una sola página: tarjetas con el precio y la variación a 30 días de los 8 activos, la evolución en
+base 100, la volatilidad anualizada con su ranking y un chat con el agente. Lee
 Athena con el mismo rol de **solo lectura** que el agente (credenciales temporales de 1 hora) y
 solo escucha en `127.0.0.1`. Los gráficos funcionan sin `ANTHROPIC_API_KEY`; la caja de preguntas
 la necesita.
@@ -335,7 +336,7 @@ python -m streamlit run dashboard/app.py   # http://127.0.0.1:8501
 ```
 
 `python -m` (y no `streamlit run` a secas) añade la carpeta actual a `sys.path`, para que
-`import dashboard` funcione. La configuración (sin telemetría y sin botón *Deploy*) está en
+`import dashboard` funcione. La configuración (tema, sin telemetría y sin botón *Deploy*) está en
 `.streamlit/config.toml`.
 
 ## Despliegue continuo (después del primer despliegue)

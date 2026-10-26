@@ -84,6 +84,38 @@ def rebase_to_100(prices: pd.DataFrame) -> pd.DataFrame:
     return ordered.assign(index_100=ordered["price"] / first * 100).reset_index(drop=True)
 
 
+def asset_summary(
+    prices: pd.DataFrame, window_days: int = 30, spark_points: int = 30
+) -> pd.DataFrame:
+    """Una fila por activo para las tarjetas: último precio, variación y mini-serie.
+
+    - `change_pct`: del primer precio de los últimos `window_days` días NATURALES (contados
+      desde el último dato de ESE activo) al último. Así la bolsa, que no cotiza el fin de
+      semana, se compara sobre el mismo periodo que la cripto.
+    - `spark`: los últimos `spark_points` precios, para el mini-gráfico.
+    """
+    columns = ["asset", "asset_class", "currency", "last_date", "last_price", "change_pct", "spark"]
+    if prices.empty:
+        return pd.DataFrame(columns=columns)
+    rows = []
+    for asset, group in prices.sort_values("date").groupby("asset", sort=False):
+        last = group.iloc[-1]
+        window = group[group["date"] >= last["date"] - pd.Timedelta(days=window_days)]
+        first_price = window["price"].iloc[0]
+        rows.append(
+            {
+                "asset": asset,
+                "asset_class": last["asset_class"],
+                "currency": last["currency"],
+                "last_date": last["date"],
+                "last_price": last["price"],
+                "change_pct": (last["price"] / first_price - 1) * 100,
+                "spark": group["price"].tail(spark_points).tolist(),
+            }
+        )
+    return pd.DataFrame(rows, columns=columns)
+
+
 def _check_days(days: int) -> int:
     # bool es un int en Python (True == 1): se rechaza aparte para no aceptar days=True
     if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= MAX_DAYS:
