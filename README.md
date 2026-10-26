@@ -379,6 +379,11 @@ muestra es asesoramiento financiero. Términos revisados el 2026-10-25 (D-039).
 - **Bolsa (SPY, VT, QQQ):** datos de [Alpha Vantage](https://www.alphavantage.co) (clave gratuita,
   uso personal y no comercial). Cierres diarios **sin ajustar** por dividendos.
 
+## Licencia
+
+El **código** se publica con la licencia [MIT](LICENSE). Los **datos** no forman parte del
+repositorio, y cada fuente tiene sus propios términos (ver la sección anterior y D-039).
+
 ## Ideas futuras
 
 Mejoras propuestas durante el proyecto, todavía sin hacer (fuera del alcance de su fase):

@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
 **Fase actual:** Fase 8 · Escaparate (empezada el 2026-10-23)
-**Siguiente paso:** commit y PR del paso 8.7; después, 8.8 (revisión de secretos en todo el historial y repositorio público). Pendientes: las respuestas de Alberto a las preguntas de repaso (Fase 7 y 8.1 a 8.5)
+**Siguiente paso:** commit y PR del paso 8.8 (licencia); Alberto revisa los PR y los logs de Actions, activa la privacidad del email y hace público el repositorio; después, comprobar la protección de `main`. Pendientes: las respuestas de Alberto a las preguntas de repaso (Fase 7 y 8.1 a 8.5)
 
 ## Cómo se trabaja ahora (traspaso para la Fase 8)
 
@@ -715,6 +715,16 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
   - Contenido: guion de 2 minutos en 7 bloques (con lo que hay que preparar y revisar antes de grabar, para no enseñar el número de cuenta, el email ni los buckets), borrador del post (sin publicar: lo revisa y lo publica Alberto) y texto del CV (una línea, viñetas en español y versión en inglés). Todas las cifras salen de PROGRESS.md y docs/COSTES.md.
   - Evidencia: `git check-ignore -v privado/ESCAPARATE.md` → `.gitignore:43:privado/` · `git status` no muestra `privado/`.
   - Pendiente (lo hace Alberto): grabar el vídeo y, si quiere, enlazarlo en el README.
+  - Commit `93d442f`. **PR #21** abierto y fusionado por Alberto (`0fbf727`), con la CI en verde (según Alberto). CodeBuild, *build* 19 (`GitHub-Hookshot`) → **SUCCEEDED**: `All checks passed!`, `293 passed`, `7jU2NQ15…`, `No changes`, `GUARDIA` OK, `0 added, 0 changed, 0 destroyed`.
+- Paso 8.8 (primera parte) — Revisión de secretos antes de hacer público el repositorio (D-043), rama `fase8/publico`. Solo lectura y sin herramientas nuevas.
+  - **59 commits de todas las referencias** (17 ramas remotas, sin etiquetas ni *stash*) y 165 rutas que han existido alguna vez. **Ningún fichero sensible ha entrado nunca**: solo `.env.example`, con los valores vacíos. **`INFORME_PROYECTO.pdf` nunca entró.**
+  - **No aparecen:** las 4 claves de `.env`, el número de cuenta, el ID de la sesión, los 2 buckets y sus sufijos, el UUID de la suscripción de SNS, el ID de la conexión con GitHub, claves `AKIA`/`ASIA`, `sk-ant-`, tokens de GitHub ni claves privadas. Números de 12 cifras: solo el ejemplo `123456789012` y la cuenta pública de la capa de pandas. Controles positivos correctos (7, 3 y 5 commits).
+  - **Hallazgo:** el email personal de Alberto aparece como **autor** en 39 de los 59 commits (solo en los metadatos, no en el contenido).
+  - **Decisiones de Alberto:**
+    - Email: aceptarlo y proteger lo que viene. `git config --local user.email` pasa al *noreply* de GitHub (comprobado con `--show-origin`: `.git/config`) y Alberto activará la privacidad del email en GitHub.
+    - `CLAUDE.md`: se publica tal cual.
+    - Licencia MIT: `LICENSE` y una sección en el README.
+    - Las descripciones de los PR y los logs de Actions las revisa Alberto.
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista
