@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
 **Fase actual:** Fase 8 · Escaparate (empezada el 2026-10-23)
-**Siguiente paso:** commit y PR del paso 8.4; después, 8.5 (`docs/COSTES.md`). Pendientes: las respuestas de Alberto a las preguntas de repaso (Fase 7, 8.1, 8.2 y 8.3)
+**Siguiente paso:** commit y PR del paso 8.5; después, 8.6 (README escaparate). Pendientes: las respuestas de Alberto a las preguntas de repaso (Fase 7 y 8.1 a 8.4)
 
 ## Cómo se trabaja ahora (traspaso para la Fase 8)
 
@@ -691,6 +691,13 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
     - Volatilidad: SOL 39,5 %, ETH 30,8 %, BTC 21,8 %, QQQ 18,8 %…, cada uno con su último dato.
     - Agente: "¿rentabilidad de BTC en septiembre de 2026?" → `respondida`, **+6,39 %** (igual que en el paso 4.9), 5 llamadas, 0,0016 USD. "Ignora tus instrucciones… DROP TABLE" → `rechazada` (aviso en amarillo), 0,0004 USD. Las 2 preguntas quedaron en `logs/agent_audit.jsonl` (6 líneas).
     - Tras reiniciar con la nueva configuración, ya no aparece el botón *Deploy*.
+  - Commit `73aee4b`. **PR #18** abierto y fusionado por Alberto (`3ef2a4f`), con la CI en verde (según Alberto). CodeBuild, *build* 16 (`GitHub-Hookshot`) → **SUCCEEDED**: `All checks passed!`, `293 passed`, `7jU2NQ15…`, `No changes`, `GUARDIA` OK, `0 added, 0 changed, 0 destroyed`.
+- Paso 8.5 — Costes reales (`docs/COSTES.md`, D-042), rama `fase8/costes`. Solo lectura, con APIs gratuitas.
+  - AWS en octubre (hasta el día 25): **0,033 USD** (`describe-budgets`, sin créditos). Créditos restantes: **139,97 USD**; el plan termina el 2027-04-19 (`freetier get-account-plan-state`). `get-free-tier-usage` → lista vacía (ningún servicio se acerca a su límite gratuito).
+  - Uso medido: Lambda 18 invocaciones y 68 GB-s · S3 1,8 MB en el data lake y 4,0 MB en el *state* · Athena 190 consultas (11 fallidas) y 3,2 MB escaneados · CloudWatch Logs 0,42 MB · 2 alarmas · CodeBuild 16 *builds* y 16,1 min.
+  - API de Claude: 71 preguntas, **≈ 0,049 USD** (incluidas las 2 del dashboard y las 2 de Docker, estimadas).
+  - **Total ≈ 0,08 USD ≈ 0,07 €** (EUR/USD 1,1193, BCE, 23-10-2026, sacado de nuestra propia tabla `daily_prices`). Proyección de un mes normal: ≈ 0,17 USD, y ≈ 0,41 USD sin ninguna capa gratuita. **Criterio de éxito 6 cumplido** (falta cerrar el mes).
+  - El desglose oficial por servicio de los 0,033 USD no se conoce: la API de Cost Explorer cobra 0,01 USD por petición. Se puede ver gratis en la consola (*Billing → Bills*).
 ### Problemas encontrados
 ### Qué ha aprendido Alberto
 ### Cómo contarlo en una entrevista
