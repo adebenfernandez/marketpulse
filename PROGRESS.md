@@ -1,7 +1,7 @@
 # PROGRESS.md — MarketPulse
 
-**Fase actual:** Fase 8 terminada (2026-10-26); quedan los criterios de éxito 1, 2, 7 y 8
-**Siguiente paso:** ronda de repaso del cierre; comprobar la ejecución del 2026-10-27 (día 7); grabar el vídeo (Alberto); opcional: ensayar el despliegue en una cuenta vacía y `destroy`
+**Fase actual:** Fase 8 terminada (2026-10-26); quedan los criterios de éxito 2, 7 y 8
+**Siguiente paso:** grabar el vídeo (Alberto) y publicar el post; opcional: repaso en voz alta (criterio 8) y ensayo del despliegue en una cuenta vacía con `destroy` (criterio 2)
 
 ## Cómo se trabaja ahora (traspaso para la Fase 8)
 
@@ -740,7 +740,7 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
 
     | # | Criterio | Estado | Evidencia o lo que falta |
     |---|---|---|---|
-    | 1 | 7 días seguidos sin errores | 🟡 6 de 7 | 21 al 26 de octubre sin errores en las ejecuciones programadas. Se cumple si la del **2026-10-27** va bien |
+    | 1 | 7 días seguidos sin errores | ✅ Cumplido el 2026-10-27 | Del 21 al 27 de octubre, las 7 ejecuciones programadas sin errores (ver "Después de la Fase 8") |
     | 2 | Toda la infraestructura con `terraform apply` y `terraform destroy` | 🟡 Parcial | Todo está en Terraform (6 módulos) y se aplica en cada *merge*. **Ni el despliegue en una cuenta vacía ni `destroy` se han ejecutado** (riesgo de la Fase 5) |
     | 3 | CI en verde; despliegue con OIDC sin claves guardadas | ✅ Con un cambio documentado | CI en verde (y ahora obligatoria en `main`). Sin claves en GitHub, pero con CodeBuild + CodeConnections en vez de OIDC, porque la SCP lo prohíbe (D-027) |
     | 4 | Cobertura ≥ 70 % en `src/` | ✅ | 92 % (paso 8.1) |
@@ -786,4 +786,8 @@ Y lo mido: tengo un conjunto de ataques en la evaluación que se ejecuta con cad
   - Tema oficial de Streamlit, 8 tarjetas con mini-serie, una fila de filtros, gráficos con Altair (como mucho 3 series, paleta validada, ficha al pasar el ratón), ranking de volatilidad y el agente como chat.
   - Función nueva `asset_summary` con su test.
   - Evidencia: `pytest` → `294 passed` · ruff correcto · huella `7jU2NQ15…` · probado en el navegador con 2 preguntas reales (0,0018 USD) · capturas nuevas en `docs/img/`.
+  - Commit `cac3229`. **PR #24** fusionado por Alberto (`86cf56f`), con la CI en verde (según Alberto). CodeBuild, *build* 22 → **SUCCEEDED**: `All checks passed!`, `294 passed`, `7jU2NQ15…`, `No changes`, `GUARDIA` OK, `0 added, 0 changed, 0 destroyed`.
+- **Cierre de la Fase 8 desplegado:** PR #23 (`45f9ace`). CodeBuild, *build* 21 → **SUCCEEDED**: `293 passed`, `7jU2NQ15…`, `No changes`, `0 added, 0 changed, 0 destroyed`. Es el primer PR fusionado con la protección de `main` activa.
+- **Día 7 de la racha (2026-10-27, solo lectura):** ingesta con `failed: {}` y las 3 fuentes correctas; transformación con `Calidad: 69 comprobaciones, 0 fallan` y `bronze_downloaded: 44`. `Invocations 1, Errors 0` en cada Lambda y las dos alarmas en `OK`. **7 días seguidos sin errores (del 21 al 27 de octubre): criterio de éxito 1 cumplido.**
+- **Capturas para LinkedIn** (2026-10-27): 4 PNG a doble resolución (2880 px de ancho) en `privado/capturas/`, ignoradas por Git. Se hicieron con Edge en modo *headless*, controlado por un script de Python a través del protocolo DevTools y sin herramientas nuevas, y se recortaron con Pillow. Una pregunta real al agente: 0,0007 USD. El borrador del post, revisado por Claude, lo publica Alberto a mano: la skill de LinkedIn necesita Publora, que no está configurado.
 
